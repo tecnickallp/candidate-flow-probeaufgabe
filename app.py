@@ -1,0 +1,127 @@
+from __future__ import annotations
+
+from urllib.parse import urlparse
+
+from flask import Flask, jsonify, render_template, request, url_for
+
+import config
+from services.job_queue import job_queue
+from services.secrets_store import is_configured, save_api_key
+from services.storage import storage
+
+app = Flask(__name__)
+
+
+@app.context_processor
+def inject_logos():
+    return {
+        "logo_dark": url_for("static", filename="img/logo-dark.svg"),
+        "logo_light": url_for("static", filename="img/logo-light.svg"),
+    }
+
+
+def validate_url(url: str) -> str | None:
+    url = url.strip()
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    parsed = urlparse(url)
+    if not parsed.netloc or "." not in parsed.netloc:
+        return None
+    return url
+
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+
+@app.route("/styleguide")
+def styleguide():
+    return render_template("styleguide.html")
+
+
+@app.route("/settings", methods=["GET"])
+def settings_page():
+    return render_template(
+        "settings.html",
+        provider=config.LLM_PROVIDER,
+        configured=is_configured(),
+    )
+
+
+@app.route("/results/<analysis_id>")
+def results_page(analysis_id: str):
+    analysis = storage.get_analysis(analysis_id)
+    if not analysis:
+        return render_template("404.html"), 404
+    return render_template("results.html", analysis=analysis)
+
+
+@app.route("/api/analyze", methods=["POST"])
+def start_analysis():
+    data = request.get_json(silent=True) or {}
+    company_name = (data.get("company_name") or "").strip()
+    website_url = validate_url(data.get("website_url") or "")
+
+    if not company_name:
+        return jsonify({"error": "Firmenname ist erforderlich."}), 400
+    if not website_url:
+        return jsonify({"error": "Bitte eine gültige Website-URL eingeben."}), 400
+
+    job_id = storage.create_job(company_name, website_url)
+    job_queue.enqueue(job_id)
+    return jsonify({"job_id": job_id, "status": "queued"}), 202
+
+
+@app.route("/api/jobs/<job_id>")
+def get_job_status(job_id: str):
+    job = storage.get_job(job_id)
+    if not job:
+        return jsonify({"error": "Job nicht gefunden."}), 404
+    payload = {
+        "job_id": job["id"],
+        "status": job["status"],
+        "progress": job.get("progress"),
+        "analysis_id": job.get("analysis_id"),
+        "error": job.get("error_message"),
+    }
+    return jsonify(payload)
+
+
+@app.route("/api/analyses/<analysis_id>")
+def get_analysis_json(analysis_id: str):
+    analysis = storage.get_analysis(analysis_id)
+    if not analysis:
+        return jsonify({"error": "Analyse nicht gefunden."}), 404
+    return jsonify(analysis)
+
+
+@app.route("/api/settings/llm")
+def get_llm_settings():
+    return jsonify({
+        "provider": config.LLM_PROVIDER,
+        "configured": is_configured(),
+    })
+
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "ok"}), 200
+
+
+@app.route("/api/settings/llm-key", methods=["PUT"])
+def save_llm_key():
+    data = request.get_json(silent=True) or {}
+    provider = (data.get("provider") or config.LLM_PROVIDER).strip().lower()
+    api_key = (data.get("api_key") or "").strip()
+    if not api_key:
+        return jsonify({"error": "API-Key ist erforderlich."}), 400
+    try:
+        save_api_key(provider, api_key)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"provider": provider, "configured": True})
+
+
+if __name__ == "__main__":
+    app.run(debug=True, port=8000)

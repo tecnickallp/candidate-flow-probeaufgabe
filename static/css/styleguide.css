@@ -1,0 +1,189 @@
+/* Style Guide page – layout only, uses tokens from style.css */
+
+.sg-hero {
+  padding-top: 8rem;
+  background-image: radial-gradient(circle farthest-corner at 140% -125%, var(--brand-orange), transparent 67%);
+}
+
+.sg-hero__lead {
+  max-width: 36rem;
+  margin-top: 1rem;
+}
+
+.sg-code {
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 0.875em;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.section--light .sg-code {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.sg-section-intro {
+  margin-top: -1.5rem;
+  margin-bottom: 2rem;
+}
+
+/* Color swatches */
+
+.sg-swatches {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2.5rem;
+}
+
+.sg-swatch {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.sg-swatch__color {
+  aspect-ratio: 1.4;
+  border-radius: var(--radius);
+}
+
+.sg-swatch__name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-family: ui-monospace, monospace;
+}
+
+.sg-swatch__hex {
+  font-size: 0.75rem;
+  color: var(--grey-300);
+  font-family: ui-monospace, monospace;
+}
+
+/* Gradient demos */
+
+.sg-gradient-demo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  align-items: center;
+}
+
+.sg-gradient-demo__box {
+  padding: 2rem 2.5rem;
+  border-radius: var(--radius);
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--white);
+}
+
+.sg-gradient-demo__box--button {
+  background-image: linear-gradient(180deg, var(--light-orange), var(--brand-orange));
+}
+
+.sg-gradient-demo__box--hero {
+  background-color: var(--black);
+  background-image: radial-gradient(circle farthest-corner at 140% -125%, var(--brand-orange), transparent 67%);
+  border: 1px solid rgba(102, 102, 102, 0.35);
+}
+
+.sg-gradient-demo__label {
+  flex: 1;
+  min-width: 200px;
+}
+
+/* Typography stack */
+
+.sg-type-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.sg-type-row {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 1.5rem;
+  align-items: baseline;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sg-type-label {
+  font-size: 0.75rem;
+  font-family: ui-monospace, monospace;
+  color: var(--brand-orange);
+  font-weight: 600;
+}
+
+.sg-type-sample {
+  margin: 0;
+}
+
+/* Components */
+
+.sg-component {
+  margin-bottom: 3rem;
+}
+
+.sg-component__preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+  margin-top: 1rem;
+}
+
+.sg-component__preview--row {
+  margin-bottom: 0.75rem;
+}
+
+.sg-dark-preview {
+  background: var(--black);
+  border-radius: var(--radius);
+  padding: 2rem;
+  margin-top: 1rem;
+}
+
+.sg-dark-preview--stats {
+  background: var(--grey-900);
+}
+
+.sg-form-demo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+@media (min-width: 480px) {
+  .sg-form-demo {
+    flex-direction: row;
+  }
+}
+
+.sg-form-demo input {
+  flex: 1;
+  padding: 0.875rem 1rem;
+  border: 1px solid #ccc;
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 1rem;
+  color: var(--black);
+}
+
+.sg-layout-info {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 768px) {
+  .sg-layout-info {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .sg-type-row {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+}

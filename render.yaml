@@ -1,0 +1,23 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# Nach dem Push auf GitHub: Render Dashboard → New → Blueprint → Repo auswählen
+services:
+  - type: web
+    name: candidate-flow-analyzer
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 120
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+      - key: LLM_PROVIDER
+        value: openai
+      - key: USE_HEURISTIC_FALLBACK
+        value: "true"
+      - key: JOB_TIMEOUT_SECONDS
+        value: "90"
+      # In Render unter "Environment" setzen (nicht ins Repo committen):
+      # - OPENAI_API_KEY (oder ANTHROPIC_API_KEY / GEMINI_API_KEY)
+      # - SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (empfohlen für persistente DB)
+      # - MASTER_ENCRYPTION_KEY (nur wenn Keys über /settings gespeichert werden sollen)

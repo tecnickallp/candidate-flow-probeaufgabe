@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Style Guide | Candidate Flow</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styleguide.css') }}">
+</head>
+<body>
+  <div class="page-wrapper">
+    <div class="nav-wrapper">
+      <nav class="nav">
+        <a href="/" class="nav__brand">
+          <img
+            src="{{ logo_dark }}"
+            alt="Candidate Flow Logo"
+            class="nav__logo"
+            width="114"
+            height="20"
+          >
+        </a>
+        <div class="nav__links">
+          <a href="/">Landingpage</a>
+          <a href="#farben">Farben</a>
+          <a href="#typografie">Typografie</a>
+          <a href="#komponenten">Komponenten</a>
+        </div>
+        <div class="nav__actions">
+          <a href="/" class="button button--secondary button--sm">Zurück</a>
+        </div>
+      </nav>
+    </div>
+
+    <header class="sg-hero">
+      <div class="padding-global padding-section-medium">
+        <div class="container-large">
+          <p class="text-accent-solid">Design System</p>
+          <h1 class="heading-h1">Candidate Flow Style Guide</h1>
+          <p class="text-secondary text-medium sg-hero__lead">
+            Visuelle Referenz für Farben, Typografie und UI-Komponenten.
+            Dokumentation: <code class="sg-code">docs/STYLE_GUIDE.md</code>
+          </p>
+        </div>
+      </div>
+    </header>
+
+    <!-- Farben -->
+    <section class="section section--dark" id="farben">
+      <div class="padding-global padding-section-medium">
+        <div class="container-large">
+          <h2 class="heading-h2">Farbpalette</h2>
+          <div class="sg-swatches">
+            <div class="sg-swatch">
+              <div class="sg-swatch__color" style="background:#0f0f0f"></div>
+              <span class="sg-swatch__name">--black</span>
+              <span class="sg-swatch__hex">#0f0f0f</span>
+            </div>
+            <div class="sg-swatch">
+              <div class="sg-swatch__color" style="background:#161616"></div>
+              <span class="sg-swatch__name">--grey-950</span>
+              <span class="sg-swatch__hex">#161616</span>
+            </div>
+            <div class="sg-swatch">
+              <div class="sg-swatch__color" style="background:#181818"></div>
+              <span class="sg-swatch__name">--grey-900</span>
+              <span class="sg-swatch__hex">#181818</span>
+            </div>
+            <div class="sg-swatch">
+              <div class="sg-swatch__color" style="background:#666666"></div>
+              <span class="sg-swatch__name">--grey-500</span>
+              <span class="sg-swatch__hex">#666666</span>
+            </div>
+            <div class="sg-swatch">
+              <div class="sg-swatch__color" style="background:#d0d0d0"></div>
+              <span class="sg-swatch__name">--grey-300</span>
+              <span class="sg-swatch__hex">#d0d0d0</span>
+            </div>
+            <div class="sg-swatch">
+              <div class="sg-swatch__color" style="background:#ffffff; border:1px solid #333"></div>
+              <span class="sg-swatch__name">--white</span>
+              <span class="sg-swatch__hex">#ffffff</span>
+            </div>
+            <div class="sg-swatch">
+              <div class="sg-swatch__color" style="background:#ff320a"></div>
+              <span class="sg-swatch__name">--brand-orange</span>
+              <span class="sg-swatch__hex">#ff320a</span>
+            </div>
+            <div class="sg-swatch">
+              <div class="sg-swatch__color" style="background:#ff684d"></div>
+              <span class="sg-swatch__name">--light-orange</span>
+              <span class="sg-swatch__hex">#ff684d</span>
+            </div>
+            <div class="sg-swatch">
+              <div class="sg-swatch__color" style="background:#eadeaa"></div>
+              <span class="sg-swatch__name">--gold</span>
+              <span class="sg-swatch__hex">#eadeaa</span>
+            </div>
+          </div>
+
+          <div class="sg-gradient-demo">
+            <div class="sg-gradient-demo__box sg-gradient-demo__box--button">
+              Button-Gradient
+            </div>
+            <div class="sg-gradient-demo__box sg-gradient-demo__box--hero">
+              Hero-Radial
+            </div>
+            <p class="text-secondary text-small sg-gradient-demo__label">
+              <em class="text-accent">Garantiert:</em> Akzent-Text-Gradient
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Typografie -->
+    <section class="section section--dark section--gradient" id="typografie">
+      <div class="padding-global padding-section-medium">
+        <div class="container-large">
+          <h2 class="heading-h2">Typografie</h2>
+          <p class="text-secondary text-medium sg-section-intro">Schrift: Outfit · Body Letter-Spacing: -0.02em</p>
+
+          <div class="sg-type-stack">
+            <div class="sg-type-row">
+              <span class="sg-type-label">.heading-h1</span>
+              <h1 class="heading-h1 sg-type-sample">Fachkräfte in 30 Tagen einstellen.</h1>
+            </div>
+            <div class="sg-type-row">
+              <span class="sg-type-label">.heading-h2</span>
+              <h2 class="heading-h2 sg-type-sample" style="margin-bottom:0">Wie Du Fachkräfte einstellst</h2>
+            </div>
+            <div class="sg-type-row">
+              <span class="sg-type-label">.heading-h3--eyebrow</span>
+              <h3 class="heading-h3 heading-h3--eyebrow sg-type-sample">Speziell für <em>wachstumsorientierte</em> Unternehmen</h3>
+            </div>
+            <div class="sg-type-row">
+              <span class="sg-type-label">.heading-h4</span>
+              <h4 class="heading-h4 sg-type-sample">Sichtbar als Top-Arbeitgeber</h4>
+            </div>
+            <div class="sg-type-row">
+              <span class="sg-type-label">.text-medium</span>
+              <p class="text-secondary text-medium sg-type-sample">Lead-Text für Einleitungen und Beschreibungen.</p>
+            </div>
+            <div class="sg-type-row">
+              <span class="sg-type-label">.text-small-medium</span>
+              <p class="text-secondary text-small-medium sg-type-sample">100&nbsp;% unverbindlich · 60 Sek.</p>
+            </div>
+            <div class="sg-type-row">
+              <span class="sg-type-label">.text-accent</span>
+              <p class="sg-type-sample"><em class="text-accent">Garantiert:</em></p>
+            </div>
+            <div class="sg-type-row">
+              <span class="sg-type-label">.text-gold</span>
+              <p class="text-gold sg-type-sample">Schriftliche Einstellungsgarantie</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Komponenten -->
+    <section class="section section--light" id="komponenten">
+      <div class="padding-global padding-section-medium">
+        <div class="container-large">
+          <h2 class="heading-h2 heading-h2--dark">Komponenten</h2>
+
+          <div class="sg-component">
+            <h3 class="heading-h4 heading-h4--dark">Buttons</h3>
+            <div class="sg-component__preview sg-component__preview--row">
+              <a href="#" class="button button--primary">
+                <span>Primary</span>
+                <img src="https://cdn.prod.website-files.com/6800d44f708683707fc0c14e/6800d44f708683707fc0c215_horizontal%20arrow.svg" alt="" class="button__arrow" width="23" height="13">
+              </a>
+              <a href="#" class="button button--primary button--sm">Primary Small</a>
+              <a href="#" class="button button--secondary button--sm">Secondary</a>
+            </div>
+            <div class="cta-subline">
+              <p class="text-secondary text-small-medium">100&nbsp;% unverbindlich · 60 Sek.</p>
+              <img src="https://cdn.prod.website-files.com/6800d44f708683707fc0c14e/684ee7dd34b85e14f37ae3f9_check%20(3).svg" alt="" class="cta-subline__icon">
+            </div>
+          </div>
+
+          <div class="sg-component">
+            <h3 class="heading-h4 heading-h4--dark">Status Badge</h3>
+            <div class="sg-component__preview">
+              <span class="status">Neu</span>
+              <span class="status">Interview</span>
+              <span class="status">Eingestellt</span>
+            </div>
+          </div>
+
+          <div class="sg-component">
+            <h3 class="heading-h4 heading-h4--dark">Step Card</h3>
+            <div class="sg-dark-preview">
+              <article class="step-card">
+                <span class="step-card__num">01</span>
+                <h4 class="heading-h4">Sichtbar als Top-Arbeitgeber</h4>
+                <p class="text-secondary">Du wirst für 95&nbsp;% der qualifizierten A-Fachkräfte sichtbar.</p>
+              </article>
+            </div>
+          </div>
+
+          <div class="sg-component">
+            <h3 class="heading-h4 heading-h4--dark">Formular</h3>
+            <div class="card">
+              <form class="sg-form-demo">
+                <input type="text" placeholder="Name eingeben">
+                <button type="button" class="button button--primary button--sm">Hinzufügen</button>
+              </form>
+            </div>
+          </div>
+
+          <div class="sg-component">
+            <h3 class="heading-h4 heading-h4--dark">Stats</h3>
+            <div class="sg-dark-preview sg-dark-preview--stats">
+              <div class="stats__grid">
+                <div class="stat">
+                  <strong>5.000+</strong>
+                  <span>Partnerbetriebe</span>
+                </div>
+                <div class="stat">
+                  <strong>30 Tage</strong>
+                  <span>Garantie</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="sg-component">
+            <h3 class="heading-h4 heading-h4--dark">Testimonial</h3>
+            <div class="sg-dark-preview">
+              <blockquote class="testimonial">
+                <p class="heading-h3 heading-h3--quote">„5 neue Mitarbeiter konnten wir bereits einstellen.“</p>
+                <footer class="testimonial__footer">
+                  <strong>Daniel Oppelt</strong>
+                  <span class="text-secondary">Manfred Domm GmbH</span>
+                </footer>
+              </blockquote>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Layout -->
+    <section class="section section--dark">
+      <div class="padding-global padding-section-medium">
+        <div class="container-large">
+          <h2 class="heading-h2">Layout & Spacing</h2>
+          <div class="sg-layout-info">
+            <div class="step-card">
+              <span class="step-card__num">Container</span>
+              <p class="text-secondary"><code class="sg-code">.container-large</code> · max-width 84.5rem</p>
+            </div>
+            <div class="step-card">
+              <span class="step-card__num">Padding</span>
+              <p class="text-secondary"><code class="sg-code">.padding-global</code> · 3rem (Mobile: 1.25rem)</p>
+            </div>
+            <div class="step-card">
+              <span class="step-card__num">Section</span>
+              <p class="text-secondary"><code class="sg-code">.padding-section-medium</code> · 4rem vertikal</p>
+            </div>
+            <div class="step-card">
+              <span class="step-card__num">Radius</span>
+              <p class="text-secondary"><code class="sg-code">--radius</code> · 0.5rem (8px)</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <div class="padding-global">
+        <div class="container-large footer__inner">
+          <img
+            src="{{ logo_dark }}"
+            alt="Candidate Flow Logo"
+            class="nav__logo"
+            width="114"
+            height="20"
+          >
+          <p class="text-secondary text-small">Candidate Flow Style Guide · Stand: Juni 2026</p>
+        </div>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

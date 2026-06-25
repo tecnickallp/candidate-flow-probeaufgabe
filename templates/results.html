@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Analyse-Ergebnis | {{ analysis.company_name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <div class="page-wrapper">
+    <div class="nav-wrapper">
+      <nav class="nav">
+        <a href="/" class="nav__brand">
+          <img src="{{ logo_dark }}" alt="Candidate Flow Logo" class="nav__logo" width="114" height="20">
+        </a>
+        <div class="nav__actions">
+          <a href="/" class="button button--primary button--sm">Neue Analyse</a>
+        </div>
+      </nav>
+    </div>
+
+    <header class="section section--dark section--gradient results-hero">
+      <div class="padding-global padding-section-medium">
+        <div class="container-large">
+          <p class="text-accent-solid">Analyse-Ergebnis</p>
+          <h1 class="heading-h1">{{ analysis.company_name }}</h1>
+          <p class="text-secondary text-medium">
+            <a href="{{ analysis.website_url }}" target="_blank" rel="noopener noreferrer">{{ analysis.website_url }}</a>
+          </p>
+          {% if analysis.industry %}
+          <p class="results-meta"><strong>Branche:</strong> {{ analysis.industry }}</p>
+          {% endif %}
+        </div>
+      </div>
+    </header>
+
+    <section class="section section--light">
+      <div class="padding-global padding-section-medium">
+        <div class="container-large results-grid">
+          <article class="card card--results">
+            <h2 class="heading-h4 heading-h4--dark">Benefits</h2>
+            {% if analysis.benefits %}
+            <ul class="results-list">
+              {% for benefit in analysis.benefits %}
+              <li>{{ benefit }}</li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <p class="text-muted">Keine Benefits erkannt.</p>
+            {% endif %}
+          </article>
+
+          <article class="card card--results">
+            <h2 class="heading-h4 heading-h4--dark">Vibe & Tonalität</h2>
+            <p class="text-muted">{{ analysis.vibe or 'Keine Tonalität erkannt.' }}</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section--dark">
+      <div class="padding-global padding-section-medium">
+        <div class="container-large">
+          <h2 class="heading-h2">Offene Stellen</h2>
+          {% if analysis.jobs %}
+          <div class="jobs-list">
+            {% for job in analysis.jobs %}
+            <article class="step-card job-card">
+              <h3 class="heading-h4">{{ job.title }}</h3>
+              {% if job.tasks %}
+              <div class="job-card__section">
+                <h4 class="job-card__label text-gold">Aufgaben</h4>
+                <ul class="results-list results-list--dark">
+                  {% for task in job.tasks %}
+                  <li>{{ task }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+              {% endif %}
+              {% if job.employer_benefits %}
+              <div class="job-card__section">
+                <h4 class="job-card__label text-gold">Arbeitgebervorteile</h4>
+                <ul class="results-list results-list--dark">
+                  {% for benefit in job.employer_benefits %}
+                  <li>{{ benefit }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+              {% endif %}
+            </article>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="text-secondary">Keine Stellenanzeigen gefunden.</p>
+          {% endif %}
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <div class="padding-global">
+        <div class="container-large footer__inner">
+          <p class="text-secondary text-small">Analysiert am {{ analysis.analyzed_at }}</p>
+        </div>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

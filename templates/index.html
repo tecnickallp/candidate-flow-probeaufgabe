@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Arbeitgeber-Analyse | Candidate Flow</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/loader.css') }}">
+</head>
+<body>
+  <div class="page-wrapper">
+    <div class="nav-wrapper">
+      <nav class="nav">
+        <a href="/" class="nav__brand">
+          <img src="{{ logo_dark }}" alt="Candidate Flow Logo" class="nav__logo" width="102" height="20">
+        </a>
+        <div class="nav__actions">
+          <a href="/settings" class="button button--secondary button--sm">Einstellungen</a>
+        </div>
+      </nav>
+    </div>
+
+    <header class="hero hero--analysis">
+      <div class="padding-global">
+        <div class="container-large">
+          <div class="hero__layout hero__layout--single">
+            <div class="hero__content">
+              <div class="hero__header">
+                <h2 class="heading-h3 heading-h3--eyebrow">
+                  Speziell für <em>wachstumsorientierte</em> Unternehmen
+                </h2>
+                <h1 class="heading-h1">
+                  <em class="text-accent">Analyse:</em>
+                  Dein Arbeitgeberprofil in Sekunden verstehen.
+                </h1>
+                <p class="text-secondary text-medium">
+                  Gib Firmenname und Website ein — wir extrahieren <strong>Branche, Benefits, Tonalität</strong>
+                  und <strong>offene Stellen</strong> für Dich.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <section class="section section--light">
+      <div class="padding-global padding-section-medium">
+        <div class="container-large">
+          <div class="card card--form">
+            <form id="analysis-form" class="analysis-form" novalidate>
+              <div class="analysis-form__field">
+                <label for="company-name" class="analysis-form__label">Firmenname</label>
+                <input type="text" id="company-name" name="company_name" placeholder="z. B. Muster GmbH" required>
+              </div>
+              <div class="analysis-form__field">
+                <label for="website-url" class="analysis-form__label">Website-URL</label>
+                <input type="url" id="website-url" name="website_url" placeholder="https://beispiel.de" required>
+              </div>
+              <button type="submit" class="button button--primary">
+                <span>Analyse starten</span>
+                <img src="https://cdn.prod.website-files.com/6800d44f708683707fc0c14e/6800d44f708683707fc0c215_horizontal%20arrow.svg" alt="" class="button__arrow" width="23" height="13">
+              </button>
+              <p id="form-error" class="form-error" hidden></p>
+            </form>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <div class="padding-global">
+        <div class="container-large footer__inner">
+          <a href="/" class="nav__brand">
+            <img src="{{ logo_dark }}" alt="Candidate Flow Logo" class="nav__logo" width="102" height="20">
+          </a>
+          <p class="text-secondary text-small">© 2026 Candidate Flow · Arbeitgeber-Analyse</p>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <div id="loader" class="loader" hidden aria-live="polite" aria-busy="true">
+    <div class="loader__grid" aria-hidden="true"></div>
+    <div class="loader__scanline" aria-hidden="true"></div>
+    <div class="loader__content">
+      <img src="{{ logo_dark }}" alt="Candidate Flow Logo" class="loader__logo" width="182" height="32">
+      <p id="loader-status" class="loader__status">Analyse wird vorbereitet…</p>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
