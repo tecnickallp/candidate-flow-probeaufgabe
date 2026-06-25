@@ -9,7 +9,6 @@ from flask import Flask, jsonify, render_template, request, url_for
 import config
 from models.job import JobStatus
 from services.job_queue import job_queue
-from services.secrets_store import is_configured, save_api_key
 from services.storage import storage
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -76,15 +75,6 @@ def styleguide():
     return render_template("styleguide.html")
 
 
-@app.route("/settings", methods=["GET"])
-def settings_page():
-    return render_template(
-        "settings.html",
-        provider=config.LLM_PROVIDER,
-        configured=is_configured(),
-    )
-
-
 @app.route("/results/<analysis_id>")
 def results_page(analysis_id: str):
     analysis = storage.get_analysis(analysis_id)
@@ -134,14 +124,6 @@ def get_analysis_json(analysis_id: str):
     return jsonify(analysis)
 
 
-@app.route("/api/settings/llm")
-def get_llm_settings():
-    return jsonify({
-        "provider": config.LLM_PROVIDER,
-        "configured": is_configured(),
-    })
-
-
 @app.route("/health")
 def health():
     payload: dict = {"status": "ok", "storage": storage.backend}
@@ -157,20 +139,6 @@ def health():
             "SQLite ist auf Render flüchtig. SUPABASE_URL und SUPABASE_SERVICE_ROLE_KEY setzen."
         )
     return jsonify(payload), 200
-
-
-@app.route("/api/settings/llm-key", methods=["PUT"])
-def save_llm_key():
-    data = request.get_json(silent=True) or {}
-    provider = (data.get("provider") or config.LLM_PROVIDER).strip().lower()
-    api_key = (data.get("api_key") or "").strip()
-    if not api_key:
-        return jsonify({"error": "API-Key ist erforderlich."}), 400
-    try:
-        save_api_key(provider, api_key)
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    return jsonify({"provider": provider, "configured": True})
 
 
 if __name__ == "__main__":

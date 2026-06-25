@@ -462,4 +462,4 @@ def get_extractor() -> BaseExtractor:
         return BedrockExtractor()
     if config.USE_HEURISTIC_FALLBACK:
         return HeuristicExtractor()
-    raise RuntimeError("LLM-API-Key nicht konfiguriert. Bitte unter /settings hinterlegen.")
+    raise RuntimeError("LLM-API-Key nicht konfiguriert. Bitte AWS_BEARER_TOKEN_BEDROCK setzen.")
