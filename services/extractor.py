@@ -12,7 +12,13 @@ from botocore.exceptions import BotoCoreError, ClientError
 import config
 from models.analysis import AnalysisResult, JobListing
 from services.secrets_store import get_api_key
-from services.job_validation import filter_employer_benefits, is_plausible_job, looks_like_job_title
+from services.job_validation import (
+    dedupe_benefits,
+    filter_employer_benefits,
+    is_plausible_job,
+    looks_like_job_title,
+    benefits_are_duplicate,
+)
 
 log = logging.getLogger(__name__)
 
@@ -143,17 +149,25 @@ def merge_parsed_benefits_from_crawl(result: AnalysisResult, crawl_text: str) ->
             if benefit.lower() not in seen:
                 merged.append(benefit)
                 seen.add(benefit.lower())
-        job.employer_benefits = filter_employer_benefits(merged)
+        job.employer_benefits = dedupe_benefits(merged)
 
-    company_benefits = list(result.benefits)
-    company_seen = {benefit.lower() for benefit in company_benefits}
-    for job in result.jobs:
-        for benefit in job.employer_benefits:
-            if benefit.lower() not in company_seen:
-                company_benefits.append(benefit)
-                company_seen.add(benefit.lower())
+    parsed_company_benefits: list[str] = []
+    for benefits in crawl_benefits_by_title.values():
+        parsed_company_benefits.extend(benefits)
+    parsed_company_benefits = dedupe_benefits(parsed_company_benefits)
 
-    result.benefits = filter_employer_benefits(company_benefits)
+    if parsed_company_benefits:
+        extras = [
+            benefit
+            for benefit in result.benefits
+            if not any(benefits_are_duplicate(benefit, parsed) for parsed in parsed_company_benefits)
+        ]
+        result.benefits = dedupe_benefits(parsed_company_benefits + extras)
+    else:
+        company_benefits = list(result.benefits)
+        for job in result.jobs:
+            company_benefits.extend(job.employer_benefits)
+        result.benefits = dedupe_benefits(company_benefits)
     return result
 
 
@@ -197,7 +211,7 @@ class HeuristicExtractor(BaseExtractor):
                     benefits.append(phrase.capitalize())
         if not benefits:
             benefits = ["Attraktives Arbeitsumfeld", "Teamorientierte Kultur"]
-        benefits = filter_employer_benefits(benefits)
+        benefits = dedupe_benefits(benefits)
 
         vibe = (
             "Das Unternehmen kommuniziert professionell und arbeitgeberorientiert. "
@@ -226,7 +240,7 @@ class HeuristicExtractor(BaseExtractor):
                     ln = ln.strip().lstrip("-").strip()
                     if ln and not ln.startswith("==="):
                         job_benefits.append(ln)
-            job_benefits = filter_employer_benefits(job_benefits) or filter_employer_benefits(benefits[:5])
+            job_benefits = dedupe_benefits(job_benefits) or dedupe_benefits(benefits[:5])
             tasks = [
                 ln
                 for ln in lines[1:10]
@@ -419,14 +433,13 @@ def _payload_to_result(payload: dict, company_name: str, website_url: str) -> An
             JobListing(
                 title=title,
                 tasks=tasks,
-                employer_benefits=filter_employer_benefits(item.get("employer_benefits") or []),
+                employer_benefits=dedupe_benefits(item.get("employer_benefits") or []),
             )
         )
-    company_benefits = filter_employer_benefits(payload.get("benefits") or [])
+    company_benefits = dedupe_benefits(payload.get("benefits") or [])
     for job in jobs:
-        for benefit in job.employer_benefits:
-            if benefit.lower() not in {b.lower() for b in company_benefits}:
-                company_benefits.append(benefit)
+        company_benefits.extend(job.employer_benefits)
+    company_benefits = dedupe_benefits(company_benefits)
     return AnalysisResult(
         company_name=company_name,
         website_url=website_url,

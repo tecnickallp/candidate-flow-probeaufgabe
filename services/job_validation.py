@@ -117,6 +117,81 @@ def filter_employer_benefits(items: list[str]) -> list[str]:
     return filtered
 
 
+def _benefit_title(text: str) -> str:
+    text = text.strip()
+    for separator in (" — ", " – ", " - "):
+        if separator in text:
+            text = text.split(separator, 1)[0]
+            break
+    text = re.sub(
+        r"^(?:"
+        r"ein(?:e[rs]?|en|em)?|dein(?:e[rs]?|en|em)?|unser(?:e[rs]?|en|em)?|"
+        r"attraktive?[rs]?|regelmäßige|persönliche|funktionale|multikulturelle"
+        r")\s+",
+        "",
+        text,
+        flags=re.I,
+    )
+    return text.strip()
+
+
+def _benefit_tokens(text: str) -> set[str]:
+    normalized = text.lower()
+    for separator in (" — ", " – ", " - ", "|"):
+        normalized = normalized.replace(separator, " ")
+    words = re.findall(r"[a-zäöü0-9ß]{3,}", normalized)
+    stop = {
+        "mit", "und", "für", "von", "bei", "der", "die", "das", "eine", "einen", "einem",
+        "monatlich", "zusätzlichen", "zusätzliche", "deinen", "deiner", "deine", "dein",
+        "unserem", "unseres", "unserer", "unser", "top", "wenn", "jeder", "jeden", "monat",
+        "chancen", "wachstum", "team", "holst", "bringst", "deinem", "beim", "kunden",
+        "professionelles", "auftreten", "unabhängig", "herkunft", "hautfarbe", "religion",
+        "willkommen", "erlebe", "starke", "gemeinschaft", "feiere", "erfolge", "leistung",
+        "zahlt", "sich", "aus", "sicherer", "wachsenden", "unternehmen", "arbeitest",
+        "werkzeug", "jeden", "frühstück", "mittagessen", "investieren", "weiterbildung",
+    }
+    return {word for word in words if word not in stop}
+
+
+def benefits_are_duplicate(left: str, right: str) -> bool:
+    if left.lower() == right.lower():
+        return True
+
+    shorter, longer = (left, right) if len(left) <= len(right) else (right, left)
+    if len(shorter) <= 28 and shorter.lower() in longer.lower():
+        return True
+
+    left_tokens = _benefit_tokens(left)
+    right_tokens = _benefit_tokens(right)
+    if not left_tokens or not right_tokens:
+        return False
+    if left_tokens == right_tokens:
+        return True
+    if left_tokens <= right_tokens or right_tokens <= left_tokens:
+        return True
+    overlap = len(left_tokens & right_tokens)
+    if overlap == 0:
+        return False
+    return overlap / min(len(left_tokens), len(right_tokens)) >= 0.65
+
+
+def dedupe_benefits(items: list[str]) -> list[str]:
+    """Remove near-duplicate benefits (e.g. short LLM summary vs. parsed tile title + description)."""
+    filtered = filter_employer_benefits(items)
+    kept: list[str] = []
+    for item in filtered:
+        duplicate_index = next(
+            (index for index, existing in enumerate(kept) if benefits_are_duplicate(item, existing)),
+            None,
+        )
+        if duplicate_index is None:
+            kept.append(item)
+            continue
+        if len(item) > len(kept[duplicate_index]):
+            kept[duplicate_index] = item
+    return kept
+
+
 def has_gender_inclusive_marking(text: str) -> bool:
     return bool(GENDER_INCLUSIVE_RE.search(text))
 
