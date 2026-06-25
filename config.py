@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import base64
 import os
 from pathlib import Path
@@ -30,9 +32,52 @@ USER_AGENT = (
     "CandidateFlow-Analyzer/1.0 (+https://candidate-flow.de; recruitment research bot)"
 )
 
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
+EMAIL_PROVIDER = os.getenv("EMAIL_PROVIDER", "auto").strip().lower()
+EMAIL_FROM = os.getenv("EMAIL_FROM", "").strip()
+LEAD_NOTIFICATION_TO = os.getenv("LEAD_NOTIFICATION_TO", "artur.b@candidate-flow.de").strip()
+EMAIL_DRY_RUN = os.getenv("EMAIL_DRY_RUN", "false").lower() in ("1", "true", "yes")
+
+SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "").strip()
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
+SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() in ("1", "true", "yes")
+
 
 def supabase_configured() -> bool:
     return bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)
+
+
+def resend_configured() -> bool:
+    return bool(RESEND_API_KEY)
+
+
+def brevo_configured() -> bool:
+    return bool(BREVO_API_KEY)
+
+
+def smtp_configured() -> bool:
+    return bool(SMTP_HOST and SMTP_USER and SMTP_PASSWORD)
+
+
+def resolve_email_provider() -> str | None:
+    if EMAIL_DRY_RUN:
+        return None
+    if EMAIL_PROVIDER != "auto":
+        return EMAIL_PROVIDER
+    if brevo_configured():
+        return "brevo"
+    if resend_configured():
+        return "resend"
+    if smtp_configured():
+        return "smtp"
+    return None
+
+
+def email_configured() -> bool:
+    return resolve_email_provider() is not None
 
 
 def resolve_master_key() -> bytes:

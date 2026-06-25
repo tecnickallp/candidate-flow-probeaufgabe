@@ -8,6 +8,7 @@ import config
 from models.job import PROGRESS_MESSAGES, JobStatus
 from services.crawler import crawl_website, normalize_url
 from services.extractor import HeuristicExtractor, get_extractor, merge_parsed_benefits_from_crawl
+from services.lead_notification import notify_lead_captured
 from services.storage import storage
 
 log = logging.getLogger(__name__)
@@ -121,6 +122,10 @@ class JobQueue:
         payload = result.to_storage_dict()
         payload["analyzed_at"] = datetime.now(timezone.utc).isoformat()
         analysis_id = storage.save_analysis(payload)
+        try:
+            notify_lead_captured(analysis_id, payload)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Lead notification failed for job %s: %s", job_id, exc)
         storage.update_job(
             job_id,
             status=JobStatus.COMPLETED.value,
