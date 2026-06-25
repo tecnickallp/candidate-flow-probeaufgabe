@@ -32,3 +32,13 @@ create table if not exists encrypted_secrets (
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
+
+-- Job-Recovery und Admin-Abfragen
+create index if not exists idx_analysis_jobs_status on analysis_jobs (status);
+create index if not exists idx_analysis_jobs_created_at on analysis_jobs (created_at);
+create index if not exists idx_analyses_created_at on analyses (created_at desc);
+
+-- RLS: öffentlicher Zugriff blockieren (service_role der Flask-App umgeht RLS)
+alter table analyses enable row level security;
+alter table analysis_jobs enable row level security;
+alter table encrypted_secrets enable row level security;

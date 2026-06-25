@@ -6,7 +6,7 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 180
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 180 --capture-output --log-level info
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
@@ -21,6 +21,12 @@ services:
         value: "eu-north-1"
       - key: AWS_BEDROCK_MODEL_ID
         value: "eu.anthropic.claude-3-5-haiku-20241022-v1:0"
-      # Secret nur im Render-Dashboard setzen (nicht ins Repo):
-      # - AWS_BEARER_TOKEN_BEDROCK=ABSK...
-      # Optional: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, MASTER_ENCRYPTION_KEY
+      # Im Render-Dashboard setzen (sync: false = Secret, nicht aus Repo):
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: AWS_BEARER_TOKEN_BEDROCK
+        sync: false
+      # Optional:
+      # - MASTER_ENCRYPTION_KEY

@@ -38,6 +38,10 @@ Ohne Supabase nutzt die App SQLite auf dem Server — auf Render ist der Speiche
    - `service_role` Key → `SUPABASE_SERVICE_ROLE_KEY`  
      (Nur serverseitig verwenden, nie im Frontend oder Git committen.)
 
+4. **RLS & Indizes:** Das Schema aktiviert Row Level Security (kein öffentlicher Tabellenzugriff). Die Flask-App nutzt den `service_role`-Key und umgeht RLS serverseitig — das ist beabsichtigt.
+
+**Bestehendes Supabase-Projekt:** Nur die neuen Zeilen aus `schema.sql` (ab den `create index`-Statements) im SQL-Editor ausführen, falls Tabellen schon existieren.
+
 ---
 
 ## Schritt 2: Code auf GitHub pushen
@@ -104,6 +108,35 @@ Ausgabe in Render als `MASTER_ENCRYPTION_KEY` eintragen.
 
 **Setup für Abgabe:** Supabase + mindestens ein LLM-Key.
 
+### Persistenz prüfen (nach Deploy)
+
+1. **Health-Endpoint:** `GET https://<deine-render-url>/health`
+
+   Erwartete Antwort mit Supabase:
+
+   ```json
+   {
+     "status": "ok",
+     "storage": "supabase",
+     "storage_detail": {
+       "backend": "supabase",
+       "ok": true,
+       "analyses_count": 0,
+       "jobs_count": 0
+     }
+   }
+   ```
+
+   Wenn `"storage": "sqlite"` und `"warning"` gesetzt ist, fehlen `SUPABASE_*` in Render → Daten gehen bei Neustart verloren.
+
+2. **Analyse durchspielen** → erneut `/health` aufrufen: `analyses_count` sollte steigen.
+
+3. **Supabase Dashboard:** Table Editor → `analyses` → neuer Eintrag mit `company_name`, `benefits` (jsonb), `jobs` (jsonb).
+
+4. **Job-Tracking:** Tabelle `analysis_jobs` — Status `queued` → `running` → `completed` (oder `failed`). Nach Deploy/Reboot werden offene Jobs aus Supabase wieder eingeplant (`list_resumable_jobs`).
+
+**Lokal:** `python view_db.py` öffnet eine SQLite-Web-UI für `data/app.db` (nur bei lokalem SQLite-Backend).
+
 ---
 
 ## Schritt 5: Testen
@@ -151,8 +184,10 @@ Lokal starten:
 | Deploy schlägt fehl | Render-Logs prüfen; Python-Version in `runtime.txt` |
 | Analyse hängt / Timeout | Free Tier Cold Start abwarten; `timeout 120` in Gunicorn ist gesetzt |
 | „LLM-API-Key nicht konfiguriert“ | `OPENAI_API_KEY` setzen oder `USE_HEURISTIC_FALLBACK=true` |
-| Daten verschwinden | Supabase konfigurieren (SQLite auf Render ist nicht persistent) |
+| Daten verschwinden | Supabase konfigurieren (SQLite auf Render ist nicht persistent); `/health` prüfen |
 | Jobs doppelt / verloren | `--workers 1` beibehalten (mehrere Worker = getrennte Job-Queues) |
+| `/health` zeigt `storage: sqlite` | `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` in Render setzen und redeployen |
+| Supabase-Insert schlägt fehl | Render-Logs prüfen; Schema in SQL-Editor aus `supabase/schema.sql` ausführen |
 
 ---
 

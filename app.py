@@ -13,6 +13,7 @@ from services.secrets_store import is_configured, save_api_key
 from services.storage import storage
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+log = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
@@ -36,7 +37,9 @@ def validate_url(url: str) -> str | None:
 
 
 def _fail_stale_job(job: dict) -> dict:
-    if job.get("status") not in (JobStatus.QUEUED.value, JobStatus.RUNNING.value):
+    # Nur verwaiste queued-Jobs (z. B. nach Deploy). running-Jobs können bei Bedrock
+    # länger als JOB_TIMEOUT dauern — die beendet job_queue selbst mit Fehler/Timeout.
+    if job.get("status") != JobStatus.QUEUED.value:
         return job
     updated_at = job.get("updated_at")
     if not updated_at:
@@ -49,7 +52,7 @@ def _fail_stale_job(job: dict) -> dict:
     if datetime.now(timezone.utc) - last_update <= stale_after:
         return job
     message = (
-        "Analyse abgebrochen (Server-Neustart oder Timeout). "
+        "Analyse abgebrochen (Server-Neustart). "
         "Bitte erneut starten."
     )
     storage.update_job(
@@ -139,7 +142,19 @@ def get_llm_settings():
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok"}), 200
+    payload: dict = {"status": "ok", "storage": storage.backend}
+    try:
+        payload["storage_detail"] = storage.ping()
+    except Exception as exc:
+        log.exception("Storage health check failed")
+        payload["status"] = "degraded"
+        payload["storage_error"] = str(exc)
+        return jsonify(payload), 503
+    if storage.backend == "sqlite":
+        payload["warning"] = (
+            "SQLite ist auf Render flüchtig. SUPABASE_URL und SUPABASE_SERVICE_ROLE_KEY setzen."
+        )
+    return jsonify(payload), 200
 
 
 @app.route("/api/settings/llm-key", methods=["PUT"])

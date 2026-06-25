@@ -7,6 +7,8 @@ from typing import Any, Optional
 
 import config
 
+log = logging.getLogger(__name__)
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS analyses (
   id TEXT PRIMARY KEY,
@@ -42,16 +44,60 @@ CREATE TABLE IF NOT EXISTS encrypted_secrets (
 """
 
 
+def _bytea_to_db(value: bytes) -> str:
+    """PostgREST/Supabase bytea JSON format."""
+    return "\\x" + value.hex()
+
+
+def _bytea_from_db(value: Any) -> bytes:
+    if isinstance(value, str):
+        if value.startswith("\\x"):
+            return bytes.fromhex(value[2:])
+        return bytes.fromhex(value)
+    return bytes(value)
+
+
 class Storage:
     def __init__(self) -> None:
         self._supabase = None
         if config.supabase_configured():
             from supabase import create_client
             self._supabase = create_client(config.SUPABASE_URL, config.SUPABASE_SERVICE_ROLE_KEY)
+            log.info("Storage backend: Supabase")
         else:
             config.DATA_DIR.mkdir(exist_ok=True)
             self._db_path = config.DATA_DIR / "app.db"
             self._init_sqlite()
+            log.warning(
+                "Storage backend: SQLite (%s) — auf Render flüchtig; SUPABASE_* setzen für Persistenz",
+                self._db_path,
+            )
+
+    @property
+    def backend(self) -> str:
+        return "supabase" if self._supabase else "sqlite"
+
+    def ping(self) -> dict[str, Any]:
+        """Connectivity check and row counts for health/debug."""
+        if self._supabase:
+            analyses = self._supabase.table("analyses").select("id", count="exact").limit(1).execute()
+            jobs = self._supabase.table("analysis_jobs").select("id", count="exact").limit(1).execute()
+            return {
+                "backend": "supabase",
+                "ok": True,
+                "analyses_count": analyses.count or 0,
+                "jobs_count": jobs.count or 0,
+            }
+        with sqlite3.connect(self._db_path) as conn:
+            analyses_count = conn.execute("SELECT COUNT(*) FROM analyses").fetchone()[0]
+            jobs_count = conn.execute("SELECT COUNT(*) FROM analysis_jobs").fetchone()[0]
+        return {
+            "backend": "sqlite",
+            "ok": True,
+            "analyses_count": analyses_count,
+            "jobs_count": jobs_count,
+            "path": str(self._db_path),
+        }
 
     def _init_sqlite(self) -> None:
         with sqlite3.connect(self._db_path) as conn:
@@ -75,7 +121,11 @@ class Storage:
             "updated_at": now,
         }
         if self._supabase:
-            self._supabase.table("analysis_jobs").insert(row).execute()
+            try:
+                self._supabase.table("analysis_jobs").insert(row).execute()
+            except Exception:
+                log.exception("Supabase insert failed for analysis_jobs id=%s", job_id)
+                raise
         else:
             with sqlite3.connect(self._db_path) as conn:
                 conn.execute(
@@ -142,7 +192,11 @@ class Storage:
             "created_at": now,
         }
         if self._supabase:
-            self._supabase.table("analyses").insert(row).execute()
+            try:
+                self._supabase.table("analyses").insert(row).execute()
+            except Exception:
+                log.exception("Supabase insert failed for analyses company=%s", row["company_name"])
+                raise
         else:
             with sqlite3.connect(self._db_path) as conn:
                 conn.execute(
@@ -191,8 +245,8 @@ class Storage:
             existing = self._supabase.table("encrypted_secrets").select("id").eq("secret_name", secret_name).limit(1).execute()
             payload = {
                 "provider": provider,
-                "nonce": nonce.hex(),
-                "ciphertext": ciphertext.hex(),
+                "nonce": _bytea_to_db(nonce),
+                "ciphertext": _bytea_to_db(ciphertext),
                 "updated_at": now,
             }
             if existing.data:
@@ -219,7 +273,7 @@ class Storage:
             if not res.data:
                 return None
             item = res.data[0]
-            return bytes.fromhex(item["nonce"]), bytes.fromhex(item["ciphertext"])
+            return _bytea_from_db(item["nonce"]), _bytea_from_db(item["ciphertext"])
         with sqlite3.connect(self._db_path) as conn:
             row = conn.execute(
                 "SELECT nonce, ciphertext FROM encrypted_secrets WHERE secret_name = ?",

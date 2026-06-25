@@ -1,7 +1,6 @@
 import logging
 import queue
 import threading
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from datetime import datetime, timezone
 
 import httpx
@@ -13,7 +12,6 @@ from services.extractor import get_extractor
 from services.storage import storage
 
 log = logging.getLogger(__name__)
-_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="extract")
 
 
 class JobQueue:
@@ -31,6 +29,7 @@ class JobQueue:
                 return
             self._active.add(job_id)
         self._queue.put(job_id)
+        log.info("Job %s enqueued", job_id)
 
     def _recover_orphaned_jobs(self) -> None:
         for job_id in storage.list_resumable_jobs():
@@ -95,31 +94,13 @@ class JobQueue:
 
         progress("extract")
         log.info(
-            "Job %s calling Bedrock model %s (timeout=%ss)",
+            "Job %s calling Bedrock model %s (read_timeout=%ss)",
             job_id,
             config.AWS_BEDROCK_MODEL_ID,
             config.JOB_TIMEOUT_SECONDS,
         )
         try:
-            future = _executor.submit(
-                get_extractor().extract,
-                company_name,
-                website_url,
-                crawl.combined_text,
-            )
-            result = future.result(timeout=config.JOB_TIMEOUT_SECONDS)
-        except FuturesTimeoutError:
-            future.cancel()
-            storage.update_job(
-                job_id,
-                status=JobStatus.FAILED.value,
-                error_message=(
-                    f"Extraktion abgebrochen (Timeout nach {config.JOB_TIMEOUT_SECONDS}s). "
-                    "Opus 4.8 kann bei großen Websites lange dauern — bitte erneut versuchen."
-                ),
-                progress="Extraktion hat zu lange gedauert.",
-            )
-            return
+            result = get_extractor().extract(company_name, website_url, crawl.combined_text)
         except RuntimeError as exc:
             log.warning("Job %s bedrock error: %s", job_id, exc)
             storage.update_job(
