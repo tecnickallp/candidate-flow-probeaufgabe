@@ -17,18 +17,18 @@ EXTRACTION_PROMPT = """Analysiere den folgenden Website-Text eines Unternehmens.
 Extrahiere strukturierte Firmendaten auf Deutsch.
 
 Gib ausschließlich gültiges JSON zurück:
-{
+{{
   "industry": "Branche als String",
   "benefits": ["firmenweite Benefits"],
   "vibe": "Vibe/Tonalität der Marke in 2-4 Sätzen",
   "jobs": [
-    {
+    {{
       "title": "Stellentitel",
       "tasks": ["Aufgabe 1", "Aufgabe 2"],
       "employer_benefits": ["Vorteil 1"]
-    }
+    }}
   ]
-}
+}}
 
 WICHTIG für jobs:
 - Nur echte, aktuell ausgeschriebene Stellenanzeigen
