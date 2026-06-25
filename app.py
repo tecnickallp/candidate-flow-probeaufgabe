@@ -13,6 +13,7 @@ from services.secrets_store import is_configured, save_api_key
 from services.storage import storage
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger(__name__)
 
 app = Flask(__name__)
@@ -104,6 +105,7 @@ def start_analysis():
         return jsonify({"error": "Bitte eine gültige Website-URL eingeben."}), 400
 
     job_id = storage.create_job(company_name, website_url)
+    log.info("Analysis queued: job_id=%s url=%s", job_id, website_url)
     job_queue.enqueue(job_id)
     return jsonify({"job_id": job_id, "status": "queued"}), 202
 

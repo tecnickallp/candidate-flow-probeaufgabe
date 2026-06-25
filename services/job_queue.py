@@ -1,5 +1,4 @@
 import logging
-import queue
 import threading
 from datetime import datetime, timezone
 
@@ -16,35 +15,18 @@ log = logging.getLogger(__name__)
 
 class JobQueue:
     def __init__(self) -> None:
-        self._queue: queue.Queue[str] = queue.Queue()
-        self._active: set[str] = set()
+        self._running: set[str] = set()
         self._lock = threading.Lock()
-        self._worker = threading.Thread(target=self._run, daemon=True, name="analysis-worker")
-        self._worker.start()
-        self._recover_orphaned_jobs()
+        self._fail_orphaned_jobs()
 
     def enqueue(self, job_id: str) -> None:
         with self._lock:
-            if job_id in self._active:
+            if job_id in self._running:
+                log.info("Job %s already running, skip duplicate enqueue", job_id)
                 return
-            self._active.add(job_id)
-        self._queue.put(job_id)
-        log.info("Job %s enqueued", job_id)
+            self._running.add(job_id)
 
-    def _recover_orphaned_jobs(self) -> None:
-        for job_id in storage.list_resumable_jobs():
-            log.info("Re-queue orphaned job %s after server start", job_id)
-            storage.update_job(
-                job_id,
-                status=JobStatus.QUEUED.value,
-                progress=PROGRESS_MESSAGES["queued"],
-                error_message=None,
-            )
-            self.enqueue(job_id)
-
-    def _run(self) -> None:
-        while True:
-            job_id = self._queue.get()
+        def run() -> None:
             try:
                 self._process(job_id)
             except Exception as exc:  # noqa: BLE001
@@ -57,8 +39,22 @@ class JobQueue:
                 )
             finally:
                 with self._lock:
-                    self._active.discard(job_id)
-                self._queue.task_done()
+                    self._running.discard(job_id)
+
+        thread = threading.Thread(target=run, daemon=True, name=f"analysis-{job_id[:8]}")
+        thread.start()
+        log.info("Job %s background thread started", job_id)
+
+    def _fail_orphaned_jobs(self) -> None:
+        message = "Analyse abgebrochen (Server-Neustart). Bitte erneut starten."
+        for job_id in storage.list_resumable_jobs():
+            log.info("Mark orphaned job %s as failed after server start", job_id)
+            storage.update_job(
+                job_id,
+                status=JobStatus.FAILED.value,
+                error_message=message,
+                progress=message,
+            )
 
     def _set_progress(self, job_id: str, key: str) -> None:
         storage.update_job(
@@ -70,6 +66,10 @@ class JobQueue:
     def _process(self, job_id: str) -> None:
         job = storage.get_job(job_id)
         if not job:
+            log.warning("Job %s not found in storage", job_id)
+            return
+        if job.get("status") == JobStatus.FAILED.value:
+            log.info("Job %s already failed, skip processing", job_id)
             return
 
         company_name = job["company_name"]
@@ -108,15 +108,6 @@ class JobQueue:
                 status=JobStatus.FAILED.value,
                 error_message=str(exc),
                 progress=str(exc),
-            )
-            return
-        except Exception as exc:
-            log.exception("Job %s extract failed", job_id)
-            storage.update_job(
-                job_id,
-                status=JobStatus.FAILED.value,
-                error_message=str(exc),
-                progress="Analyse fehlgeschlagen.",
             )
             return
 

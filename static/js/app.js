@@ -4,9 +4,9 @@ const loaderStatus = document.getElementById("loader-status");
 const formError = document.getElementById("form-error");
 
 const POLL_INTERVAL_MS = 1500;
-const MAX_POLL_MS = 360000;
+const MAX_POLL_MS = 480000;
 const ANALYZE_START_TIMEOUT_MS = 120000;
-const EXTRACT_HINT_MS = 20000;
+const EXTRACT_HINT_MS = 15000;
 
 function showError(message) {
   formError.textContent = message;
@@ -37,28 +37,27 @@ async function fetchWithTimeout(url, options, timeoutMs, timeoutMessage) {
   }
 }
 
+async function fetchJob(jobId) {
+  const response = await fetch(`/api/jobs/${jobId}`);
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || "Job-Status konnte nicht geladen werden.");
+  }
+  return data;
+}
+
 async function pollJob(jobId) {
   const started = Date.now();
   while (true) {
     const elapsed = Date.now() - started;
-    if (elapsed > MAX_POLL_MS) {
-      throw new Error(
-        "Die Analyse dauert ungewöhnlich lange. Bitte in 1–2 Minuten erneut versuchen."
-      );
-    }
-
-    const response = await fetch(`/api/jobs/${jobId}`);
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error || "Job-Status konnte nicht geladen werden.");
-    }
+    const data = await fetchJob(jobId);
 
     let statusText = data.progress || "Analyse läuft…";
-    if (
-      statusText.includes("extrahiert") &&
-      elapsed > EXTRACT_HINT_MS
-    ) {
-      statusText = "Claude Opus 4.8 extrahiert Daten — kann 1–3 Minuten dauern…";
+    if (statusText.includes("extrahiert") && elapsed > EXTRACT_HINT_MS) {
+      statusText = "KI extrahiert Daten — kann 1–4 Minuten dauern…";
+    }
+    if (data.status === "queued" && elapsed > 10000) {
+      statusText = "Analyse läuft — Crawl & KI-Extraktion…";
     }
     setLoaderStatus(statusText);
 
@@ -68,6 +67,20 @@ async function pollJob(jobId) {
     if (data.status === "failed") {
       throw new Error(data.error || "Analyse fehlgeschlagen.");
     }
+
+    if (elapsed > MAX_POLL_MS) {
+      const finalData = await fetchJob(jobId);
+      if (finalData.status === "completed" && finalData.analysis_id) {
+        return finalData.analysis_id;
+      }
+      if (finalData.status === "failed" && finalData.error) {
+        throw new Error(finalData.error);
+      }
+      throw new Error(
+        "Die Analyse dauert länger als erwartet. Bitte erneut versuchen — prüfe Render-Logs auf „Job … background thread started“."
+      );
+    }
+
     await new Promise((resolve) => window.setTimeout(resolve, POLL_INTERVAL_MS));
   }
 }
