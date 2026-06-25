@@ -1,13 +1,28 @@
+from __future__ import annotations
+
 import json
 import logging
 import sqlite3
+import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Callable, Optional, TypeVar
+
+import httpx
 
 import config
 
 log = logging.getLogger(__name__)
+
+T = TypeVar("T")
+
+_TRANSIENT_HTTP_ERRORS = (
+    httpx.RemoteProtocolError,
+    httpx.ConnectError,
+    httpx.ReadTimeout,
+    httpx.WriteTimeout,
+    httpx.PoolTimeout,
+)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS analyses (
@@ -57,12 +72,21 @@ def _bytea_from_db(value: Any) -> bytes:
     return bytes(value)
 
 
+def _create_supabase_client():
+    from supabase import create_client
+    from supabase.lib.client_options import SyncClientOptions
+
+    # HTTP/2-Verbindungen zu Supabase brechen auf Render gelegentlich ab (RemoteProtocolError).
+    http_client = httpx.Client(http2=False, timeout=30.0)
+    options = SyncClientOptions(httpx_client=http_client)
+    return create_client(config.SUPABASE_URL, config.SUPABASE_SERVICE_ROLE_KEY, options=options)
+
+
 class Storage:
     def __init__(self) -> None:
         self._supabase = None
         if config.supabase_configured():
-            from supabase import create_client
-            self._supabase = create_client(config.SUPABASE_URL, config.SUPABASE_SERVICE_ROLE_KEY)
+            self._supabase = _create_supabase_client()
             log.info("Storage backend: Supabase")
         else:
             config.DATA_DIR.mkdir(exist_ok=True)
@@ -77,11 +101,41 @@ class Storage:
     def backend(self) -> str:
         return "supabase" if self._supabase else "sqlite"
 
+    def _reset_supabase_client(self) -> None:
+        if config.supabase_configured():
+            self._supabase = _create_supabase_client()
+            log.info("Supabase client recreated after connection error")
+
+    def _execute_supabase(self, operation: Callable[[], T], *, op_name: str) -> T:
+        last_exc: Exception | None = None
+        for attempt in range(3):
+            try:
+                return operation()
+            except _TRANSIENT_HTTP_ERRORS as exc:
+                last_exc = exc
+                log.warning(
+                    "Supabase %s failed (attempt %s/3): %s",
+                    op_name,
+                    attempt + 1,
+                    exc,
+                )
+                if attempt < 2:
+                    self._reset_supabase_client()
+                    time.sleep(0.4 * (2**attempt))
+        assert last_exc is not None
+        raise last_exc
+
     def ping(self) -> dict[str, Any]:
         """Connectivity check and row counts for health/debug."""
         if self._supabase:
-            analyses = self._supabase.table("analyses").select("id", count="exact").limit(1).execute()
-            jobs = self._supabase.table("analysis_jobs").select("id", count="exact").limit(1).execute()
+            analyses = self._execute_supabase(
+                lambda: self._supabase.table("analyses").select("id", count="exact").limit(1).execute(),
+                op_name="ping analyses",
+            )
+            jobs = self._execute_supabase(
+                lambda: self._supabase.table("analysis_jobs").select("id", count="exact").limit(1).execute(),
+                op_name="ping jobs",
+            )
             return {
                 "backend": "supabase",
                 "ok": True,
@@ -122,7 +176,10 @@ class Storage:
         }
         if self._supabase:
             try:
-                self._supabase.table("analysis_jobs").insert(row).execute()
+                self._execute_supabase(
+                    lambda: self._supabase.table("analysis_jobs").insert(row).execute(),
+                    op_name=f"insert job {job_id}",
+                )
             except Exception:
                 log.exception("Supabase insert failed for analysis_jobs id=%s", job_id)
                 raise
@@ -143,7 +200,10 @@ class Storage:
     def update_job(self, job_id: str, **fields: Any) -> None:
         fields["updated_at"] = self._now()
         if self._supabase:
-            self._supabase.table("analysis_jobs").update(fields).eq("id", job_id).execute()
+            self._execute_supabase(
+                lambda: self._supabase.table("analysis_jobs").update(fields).eq("id", job_id).execute(),
+                op_name=f"update job {job_id}",
+            )
         else:
             cols = ", ".join(f"{k} = ?" for k in fields)
             vals = list(fields.values()) + [job_id]
@@ -152,7 +212,10 @@ class Storage:
 
     def get_job(self, job_id: str) -> Optional[dict]:
         if self._supabase:
-            res = self._supabase.table("analysis_jobs").select("*").eq("id", job_id).limit(1).execute()
+            res = self._execute_supabase(
+                lambda: self._supabase.table("analysis_jobs").select("*").eq("id", job_id).limit(1).execute(),
+                op_name=f"get job {job_id}",
+            )
             return res.data[0] if res.data else None
         with sqlite3.connect(self._db_path) as conn:
             conn.row_factory = sqlite3.Row
@@ -162,12 +225,15 @@ class Storage:
     def list_resumable_jobs(self) -> list[str]:
         statuses = ("queued", "running")
         if self._supabase:
-            res = (
-                self._supabase.table("analysis_jobs")
-                .select("id")
-                .in_("status", list(statuses))
-                .order("created_at")
-                .execute()
+            res = self._execute_supabase(
+                lambda: (
+                    self._supabase.table("analysis_jobs")
+                    .select("id")
+                    .in_("status", list(statuses))
+                    .order("created_at")
+                    .execute()
+                ),
+                op_name="list resumable jobs",
             )
             return [row["id"] for row in res.data or []]
         with sqlite3.connect(self._db_path) as conn:
@@ -193,7 +259,10 @@ class Storage:
         }
         if self._supabase:
             try:
-                self._supabase.table("analyses").insert(row).execute()
+                self._execute_supabase(
+                    lambda: self._supabase.table("analyses").insert(row).execute(),
+                    op_name=f"insert analysis {analysis_id}",
+                )
             except Exception:
                 log.exception("Supabase insert failed for analyses company=%s", row["company_name"])
                 raise
@@ -215,7 +284,10 @@ class Storage:
 
     def get_analysis(self, analysis_id: str) -> Optional[dict]:
         if self._supabase:
-            res = self._supabase.table("analyses").select("*").eq("id", analysis_id).limit(1).execute()
+            res = self._execute_supabase(
+                lambda: self._supabase.table("analyses").select("*").eq("id", analysis_id).limit(1).execute(),
+                op_name=f"get analysis {analysis_id}",
+            )
             row = res.data[0] if res.data else None
         else:
             with sqlite3.connect(self._db_path) as conn:
@@ -242,7 +314,16 @@ class Storage:
             "updated_at": now,
         }
         if self._supabase:
-            existing = self._supabase.table("encrypted_secrets").select("id").eq("secret_name", secret_name).limit(1).execute()
+            existing = self._execute_supabase(
+                lambda: (
+                    self._supabase.table("encrypted_secrets")
+                    .select("id")
+                    .eq("secret_name", secret_name)
+                    .limit(1)
+                    .execute()
+                ),
+                op_name=f"get secret {secret_name}",
+            )
             payload = {
                 "provider": provider,
                 "nonce": _bytea_to_db(nonce),
@@ -250,10 +331,21 @@ class Storage:
                 "updated_at": now,
             }
             if existing.data:
-                self._supabase.table("encrypted_secrets").update(payload).eq("secret_name", secret_name).execute()
+                self._execute_supabase(
+                    lambda: (
+                        self._supabase.table("encrypted_secrets")
+                        .update(payload)
+                        .eq("secret_name", secret_name)
+                        .execute()
+                    ),
+                    op_name=f"update secret {secret_name}",
+                )
             else:
                 payload.update({"secret_name": secret_name, "created_at": now})
-                self._supabase.table("encrypted_secrets").insert(payload).execute()
+                self._execute_supabase(
+                    lambda: self._supabase.table("encrypted_secrets").insert(payload).execute(),
+                    op_name=f"insert secret {secret_name}",
+                )
         else:
             with sqlite3.connect(self._db_path) as conn:
                 conn.execute(
@@ -269,7 +361,16 @@ class Storage:
 
     def get_secret(self, secret_name: str) -> Optional[tuple[bytes, bytes]]:
         if self._supabase:
-            res = self._supabase.table("encrypted_secrets").select("*").eq("secret_name", secret_name).limit(1).execute()
+            res = self._execute_supabase(
+                lambda: (
+                    self._supabase.table("encrypted_secrets")
+                    .select("*")
+                    .eq("secret_name", secret_name)
+                    .limit(1)
+                    .execute()
+                ),
+                op_name=f"fetch secret {secret_name}",
+            )
             if not res.data:
                 return None
             item = res.data[0]
