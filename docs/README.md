@@ -14,7 +14,7 @@ Web-App zur **Arbeitgeber-Analyse**: Firmenname und Website eingeben, die App cr
 |---------|-------------|
 | **Backend** | Python 3.12, [Flask](https://flask.palletsprojects.com/) |
 | **Frontend** | Jinja2-Templates, Vanilla JavaScript, CSS (Candidate-Flow-Design) |
-| **HTTP / Crawling** | [httpx](https://www.python-httpx.org/), [BeautifulSoup4](https://www.crummy.com/software/BeautifulSoup/) |
+| **HTTP / Crawling** | [httpx](https://www.python-httpx.org/), [BeautifulSoup4](https://www.crummy.com/software/BeautifulSoup/), optional [Playwright](https://playwright.dev/python/) |
 | **Datenmodell** | [Pydantic](https://docs.pydantic.dev/) |
 | **Datenbank** | [Supabase](https://supabase.com/) (PostgreSQL) — Fallback lokal: SQLite |
 | **LLM-Extraktion** | [AWS Bedrock](https://aws.amazon.com/bedrock/) (Anthropic Claude, EU-Region) |
@@ -34,9 +34,40 @@ Web-App zur **Arbeitgeber-Analyse**: Firmenname und Website eingeben, die App cr
 
 **Ohne Supabase:** Die App nutzt SQLite unter `data/app.db`. Lokal ausreichend; auf Render ist dieser Speicher **flüchtig** (Daten gehen bei Neustart verloren).
 
-**Ohne Bedrock-Token:** Mit `USE_HEURISTIC_FALLBACK=true` (Standard in `.env.example`) läuft eine regelbasierte Extraktion — für Demos ok, für echte Analysen `AWS_BEARER_TOKEN_BEDROCK` setzen.
+**Ohne Bedrock-Token:** Mit `USE_HEURISTIC_FALLBACK=true` (Standard in `.env.example`) läuft eine regelbasierte Extraktion — für Demos ok, für echte Analysen `AWS_BEARER_TOKEN_BEDROCK` setzen. Auf Render ist `USE_HEURISTIC_FALLBACK=false`; bei ungültiger Bedrock-JSON-Antwort greift trotzdem automatisch die Heuristik als Fallback.
 
 **Weitere Modelle:** In `services/extractor.py` ist die Extraktion über eine gemeinsame Schnittstelle (`BaseExtractor`) angebunden. Ein zusätzliches Modell lässt sich durch eine neue Extractor-Klasse und einen Eintrag in `get_extractor()` ergänzen — ohne Änderungen am Crawl- oder Speicher-Flow.
+
+---
+
+## Crawling & Extraktion (stack-übergreifend)
+
+Karriereseiten werden nicht nur als statisches HTML gelesen. Die Pipeline in `services/page_extractors.py` kombiniert mehrere Strategien und führt die Ergebnisse zusammen:
+
+| Stufe | Strategie | Typische Stacks |
+|-------|-----------|-----------------|
+| 1 | **Structured Data** | JSON-LD `JobPosting` (Schema.org, viele ATS/CMS) |
+| 2 | **Static HTML** | Klassisches HTML, Benefit-Kacheln (WordPress/Divi, Elementor, …) |
+| 3 | **Embedded JSON** | `__NEXT_DATA__` (Next.js), `__NUXT__` (Nuxt), Vue-State, generische Job-JSON |
+| 4 | **JS-Bundles** | React/Vite-SPAs — Inhalte aus `/assets/*.js` (`spa_parser.py`) |
+| 5 | **Browser-Fallback** *(optional)* | Headless Chromium via Playwright für unbekannte SPAs |
+
+Zusätzlich:
+
+- **Detailseiten** — z. B. Divi-Klicklinks (`et_link_options_data`) oder `/bewerbung-*`-Landingpages mit Benefit-Kacheln
+- **Benefits** — HTML-Kacheln (`benefits_parser.py`) werden geparst und per `merge_parsed_benefits_from_crawl()` in die Ergebnisse übernommen (semantische Deduplizierung)
+- **LLM** — Bedrock extrahiert Branche, Vibe und Aufgaben; Benefits aus dem Crawl werden bevorzugt direkt gemerged
+
+**Playwright optional aktivieren** (z. B. wenn Stufe 1–4 keine Stellen finden):
+
+```env
+USE_PLAYWRIGHT_FALLBACK=true
+PLAYWRIGHT_TIMEOUT_SECONDS=25
+```
+
+Build-Command ergänzen: `pip install -r requirements.txt && playwright install chromium`
+
+Ohne Playwright funktionieren u. a. klassische HTML-Seiten, WordPress/Divi und viele React-SPAs mit eingebetteten Job-Texten im JS-Bundle.
 
 ---
 
@@ -93,10 +124,11 @@ Health-Check: **http://localhost:8000/health** — zeigt Speicher-Backend (`supa
 Während der Ladebildschirm läuft, passiert im Backend:
 
 1. **Job anlegen** — Eintrag in `analysis_jobs` (Status `queued`)
-2. **Crawl** — Homepage, Karriere-Pfade (`/karriere`, `/jobs`, …) und einzelne Stellen-Seiten
-3. **Extraktion** — AWS Bedrock (Anthropic Claude) oder Heuristik wertet den Text aus
-4. **Speichern** — Ergebnis in Tabelle `analyses`
-5. **Abschluss** — Job-Status `completed`, Weiterleitung zur Ergebnisseite
+2. **Crawl** — Homepage, Karriere-Pfade (`/karriere`, `/jobs`, …), Stellen-Detailseiten; mehrstufige Inhaltserkennung (HTML, JSON, JS-Bundles)
+3. **Extraktion** — AWS Bedrock (Anthropic Claude) wertet den Text aus; Heuristik als Fallback bei JSON-Fehlern
+4. **Benefits-Merge** — Geparste Kacheln/Vorteile aus dem Crawl werden den Stellen zugeordnet
+5. **Speichern** — Ergebnis in Tabelle `analyses`
+6. **Abschluss** — Job-Status `completed`, Weiterleitung zur Ergebnisseite
 
 Das Frontend pollt alle 1,5 Sekunden `/api/jobs/<job_id>` bis die Analyse fertig ist.
 
@@ -156,7 +188,12 @@ app.py                 # Flask-App, Routen
 config.py              # Umgebungsvariablen
 services/
   crawler.py           # Website- & Karriere-Crawl
+  page_extractors.py   # Stack-übergreifende Extraktions-Pipeline
+  benefits_parser.py   # Benefit-Kacheln aus HTML
+  spa_parser.py        # React/Vite-Inhalte aus JS-Bundles
+  browser_fetch.py     # Optional: Playwright-Rendering
   extractor.py         # Bedrock / Heuristik-Extraktion
+  job_validation.py    # Stellen- & Benefit-Validierung, Deduplizierung
   job_queue.py         # Hintergrund-Jobs
   storage.py           # Supabase / SQLite
   secrets_store.py     # Verschlüsselte API-Keys
@@ -175,7 +212,10 @@ render.yaml            # Render-Blueprint
 | „Server antwortet nicht“ | Render Cold Start — Seite neu laden, erneut starten |
 | „Website nicht erreichbar“ | URL prüfen, Seite muss öffentlich erreichbar sein |
 | „LLM-API-Key nicht konfiguriert“ | `AWS_BEARER_TOKEN_BEDROCK` in `.env` oder `/settings` setzen, oder `USE_HEURISTIC_FALLBACK=true` |
-| Analyse dauert sehr lange | Normal bei Bedrock (1–4 Min.); Free Tier kann länger brauchen |
+| „Ungültige JSON-Antwort vom Modell“ | Bedrock-Antwort abgeschnitten — nach Deploy greift Heuristik-Fallback; ggf. erneut analysieren |
+| Keine Stellen gefunden | Seite evtl. rein clientseitig gerendert — `USE_PLAYWRIGHT_FALLBACK=true` + Chromium im Build |
+| Keine Benefit-Kacheln | Detailseite/Landingpage wird nicht erreicht — Karriere-Link prüfen; bei Divi/Elementor werden Klick-URLs mitgeladen |
+| Analyse dauert sehr lange | Normal bei Bedrock und vielen Stellen (1–4 Min.); Free Tier kann länger brauchen |
 | Daten verschwinden nach Deploy | Supabase konfigurieren — SQLite auf Render ist flüchtig |
 | „Analyse abgebrochen (Server-Neustart)“ | Deploy/Reboot während laufender Analyse — erneut starten |
 
