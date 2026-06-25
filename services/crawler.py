@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 
 import config
 from services.benefits_parser import extract_benefits_from_html
+from services.spa_parser import extract_spa_content, is_spa_shell
 from services.job_validation import (
     has_job_signal,
     is_junk_job_link,
@@ -296,6 +297,19 @@ def crawl_website(website_url: str, progress_callback=None) -> CrawlResult:
                     result.job_pages,
                     extract_job_entries_from_text(result.career_text, career_url),
                 )
+                if is_spa_shell(career_html) or len(result.career_text) < 300:
+                    spa_jobs, spa_benefits, spa_text = extract_spa_content(
+                        client, career_html, career_url
+                    )
+                    if spa_jobs:
+                        _append_unique_jobs(result.job_pages, spa_jobs)
+                    if spa_text:
+                        extra = spa_text if not result.career_text else f"{result.career_text}\n\n{spa_text}"
+                        result.career_text = extra[:15000]
+                    for benefit in spa_benefits:
+                        key = benefit.lower()
+                        if key not in {item.lower() for item in result.benefits}:
+                            result.benefits.append(benefit)
             except httpx.HTTPError:
                 result.career_text = ""
 
