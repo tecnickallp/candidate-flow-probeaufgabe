@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import logging
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 from flask import Flask, jsonify, render_template, request, url_for
 
 import config
+from models.job import JobStatus
 from services.job_queue import job_queue
 from services.secrets_store import is_configured, save_api_key
 from services.storage import storage
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 app = Flask(__name__)
 
@@ -28,6 +33,33 @@ def validate_url(url: str) -> str | None:
     if not parsed.netloc or "." not in parsed.netloc:
         return None
     return url
+
+
+def _fail_stale_job(job: dict) -> dict:
+    if job.get("status") not in (JobStatus.QUEUED.value, JobStatus.RUNNING.value):
+        return job
+    updated_at = job.get("updated_at")
+    if not updated_at:
+        return job
+    try:
+        last_update = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+    except ValueError:
+        return job
+    stale_after = timedelta(seconds=config.JOB_TIMEOUT_SECONDS + 120)
+    if datetime.now(timezone.utc) - last_update <= stale_after:
+        return job
+    message = (
+        "Analyse abgebrochen (Server-Neustart oder Timeout). "
+        "Bitte erneut starten."
+    )
+    storage.update_job(
+        job["id"],
+        status=JobStatus.FAILED.value,
+        error_message=message,
+        progress=message,
+    )
+    refreshed = storage.get_job(job["id"])
+    return refreshed or job
 
 
 @app.route("/")
@@ -78,6 +110,7 @@ def get_job_status(job_id: str):
     job = storage.get_job(job_id)
     if not job:
         return jsonify({"error": "Job nicht gefunden."}), 404
+    job = _fail_stale_job(job)
     payload = {
         "job_id": job["id"],
         "status": job["status"],

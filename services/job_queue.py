@@ -1,5 +1,7 @@
+import logging
 import queue
 import threading
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from datetime import datetime, timezone
 
 import httpx
@@ -10,15 +12,36 @@ from services.crawler import crawl_website, normalize_url
 from services.extractor import get_extractor
 from services.storage import storage
 
+log = logging.getLogger(__name__)
+_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="extract")
+
 
 class JobQueue:
     def __init__(self) -> None:
         self._queue: queue.Queue[str] = queue.Queue()
+        self._active: set[str] = set()
+        self._lock = threading.Lock()
         self._worker = threading.Thread(target=self._run, daemon=True, name="analysis-worker")
         self._worker.start()
+        self._recover_orphaned_jobs()
 
     def enqueue(self, job_id: str) -> None:
+        with self._lock:
+            if job_id in self._active:
+                return
+            self._active.add(job_id)
         self._queue.put(job_id)
+
+    def _recover_orphaned_jobs(self) -> None:
+        for job_id in storage.list_resumable_jobs():
+            log.info("Re-queue orphaned job %s after server start", job_id)
+            storage.update_job(
+                job_id,
+                status=JobStatus.QUEUED.value,
+                progress=PROGRESS_MESSAGES["queued"],
+                error_message=None,
+            )
+            self.enqueue(job_id)
 
     def _run(self) -> None:
         while True:
@@ -26,6 +49,7 @@ class JobQueue:
             try:
                 self._process(job_id)
             except Exception as exc:  # noqa: BLE001
+                log.exception("Job %s failed", job_id)
                 storage.update_job(
                     job_id,
                     status=JobStatus.FAILED.value,
@@ -33,6 +57,8 @@ class JobQueue:
                     progress="Analyse fehlgeschlagen.",
                 )
             finally:
+                with self._lock:
+                    self._active.discard(job_id)
                 self._queue.task_done()
 
     def _set_progress(self, job_id: str, key: str) -> None:
@@ -49,9 +75,11 @@ class JobQueue:
 
         company_name = job["company_name"]
         website_url = normalize_url(job["website_url"])
+        log.info("Job %s started for %s", job_id, website_url)
         self._set_progress(job_id, "queued")
 
         def progress(key: str) -> None:
+            log.info("Job %s progress: %s", job_id, key)
             self._set_progress(job_id, key)
 
         try:
@@ -66,9 +94,34 @@ class JobQueue:
             return
 
         progress("extract")
+        log.info(
+            "Job %s calling Bedrock model %s (timeout=%ss)",
+            job_id,
+            config.AWS_BEDROCK_MODEL_ID,
+            config.JOB_TIMEOUT_SECONDS,
+        )
         try:
-            result = get_extractor().extract(company_name, website_url, crawl.combined_text)
+            future = _executor.submit(
+                get_extractor().extract,
+                company_name,
+                website_url,
+                crawl.combined_text,
+            )
+            result = future.result(timeout=config.JOB_TIMEOUT_SECONDS)
+        except FuturesTimeoutError:
+            future.cancel()
+            storage.update_job(
+                job_id,
+                status=JobStatus.FAILED.value,
+                error_message=(
+                    f"Extraktion abgebrochen (Timeout nach {config.JOB_TIMEOUT_SECONDS}s). "
+                    "Opus 4.8 kann bei großen Websites lange dauern — bitte erneut versuchen."
+                ),
+                progress="Extraktion hat zu lange gedauert.",
+            )
+            return
         except RuntimeError as exc:
+            log.warning("Job %s bedrock error: %s", job_id, exc)
             storage.update_job(
                 job_id,
                 status=JobStatus.FAILED.value,
@@ -76,7 +129,17 @@ class JobQueue:
                 progress=str(exc),
             )
             return
+        except Exception as exc:
+            log.exception("Job %s extract failed", job_id)
+            storage.update_job(
+                job_id,
+                status=JobStatus.FAILED.value,
+                error_message=str(exc),
+                progress="Analyse fehlgeschlagen.",
+            )
+            return
 
+        log.info("Job %s extract completed", job_id)
         progress("save")
         payload = result.to_storage_dict()
         payload["analyzed_at"] = datetime.now(timezone.utc).isoformat()
@@ -87,6 +150,7 @@ class JobQueue:
             analysis_id=analysis_id,
             progress="Analyse abgeschlossen.",
         )
+        log.info("Job %s completed -> %s", job_id, analysis_id)
 
 
 job_queue = JobQueue()

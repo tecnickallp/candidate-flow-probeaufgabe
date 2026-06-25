@@ -16,11 +16,11 @@ services:
       - key: USE_HEURISTIC_FALLBACK
         value: "false"
       - key: JOB_TIMEOUT_SECONDS
-        value: "180"
+        value: "240"
       - key: AWS_BEDROCK_REGION
         value: "eu-north-1"
       - key: AWS_BEDROCK_MODEL_ID
-        value: "eu.anthropic.claude-opus-4-8"
+        value: "eu.anthropic.claude-3-5-haiku-20241022-v1:0"
       # Secret nur im Render-Dashboard setzen (nicht ins Repo):
       # - AWS_BEARER_TOKEN_BEDROCK=ABSK...
       # Optional: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, MASTER_ENCRYPTION_KEY

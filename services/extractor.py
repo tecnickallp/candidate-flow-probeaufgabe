@@ -4,6 +4,10 @@ import json
 import re
 from abc import ABC, abstractmethod
 
+import boto3
+from botocore.config import Config
+from botocore.exceptions import BotoCoreError, ClientError
+
 import config
 from models.analysis import AnalysisResult, JobListing
 from services.secrets_store import get_api_key
@@ -173,24 +177,29 @@ class BedrockExtractor(BaseExtractor):
     def extract(self, company_name: str, website_url: str, text: str) -> AnalysisResult:
         import os
 
-        import boto3
-        from botocore.exceptions import BotoCoreError, ClientError
-
         api_key = get_api_key("bedrock")
         if not api_key:
             raise RuntimeError("LLM-API-Key nicht konfiguriert")
         os.environ["AWS_BEARER_TOKEN_BEDROCK"] = api_key
 
-        client = boto3.client("bedrock-runtime", region_name=config.AWS_BEDROCK_REGION)
+        client = boto3.client(
+            "bedrock-runtime",
+            region_name=config.AWS_BEDROCK_REGION,
+            config=Config(
+                connect_timeout=15,
+                read_timeout=config.JOB_TIMEOUT_SECONDS,
+                retries={"max_attempts": 2, "mode": "standard"},
+            ),
+        )
         prompt = EXTRACTION_PROMPT.format(
-            company_name=company_name, website_url=website_url, text=text[:30000]
+            company_name=company_name, website_url=website_url, text=text[:20000]
         )
         try:
             response = client.converse(
                 modelId=config.AWS_BEDROCK_MODEL_ID,
                 system=[{"text": "Du extrahierst strukturierte Recruiting-Daten. Antworte nur mit JSON."}],
                 messages=[{"role": "user", "content": [{"text": prompt}]}],
-                inferenceConfig={"maxTokens": 4096, "temperature": 0.2},
+                inferenceConfig={"maxTokens": 2048, "temperature": 0.2},
             )
         except ClientError as exc:
             code = exc.response.get("Error", {}).get("Code", "ClientError")
@@ -200,7 +209,10 @@ class BedrockExtractor(BaseExtractor):
             raise RuntimeError(f"AWS Bedrock: {exc}") from exc
 
         raw = response["output"]["message"]["content"][0]["text"]
-        payload = json.loads(_extract_json(raw))
+        try:
+            payload = json.loads(_extract_json(raw))
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("AWS Bedrock: Ungültige JSON-Antwort vom Modell.") from exc
         return _payload_to_result(payload, company_name, website_url)
 
 
