@@ -1,4 +1,5 @@
 import json
+import logging
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -107,6 +108,24 @@ class Storage:
             conn.row_factory = sqlite3.Row
             row = conn.execute("SELECT * FROM analysis_jobs WHERE id = ?", (job_id,)).fetchone()
             return dict(row) if row else None
+
+    def list_resumable_jobs(self) -> list[str]:
+        statuses = ("queued", "running")
+        if self._supabase:
+            res = (
+                self._supabase.table("analysis_jobs")
+                .select("id")
+                .in_("status", list(statuses))
+                .order("created_at")
+                .execute()
+            )
+            return [row["id"] for row in res.data or []]
+        with sqlite3.connect(self._db_path) as conn:
+            rows = conn.execute(
+                "SELECT id FROM analysis_jobs WHERE status IN (?, ?) ORDER BY created_at",
+                statuses,
+            ).fetchall()
+            return [row[0] for row in rows]
 
     def save_analysis(self, data: dict) -> str:
         analysis_id = str(uuid.uuid4())
