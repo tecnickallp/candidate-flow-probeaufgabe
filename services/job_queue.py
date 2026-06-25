@@ -7,7 +7,7 @@ import httpx
 import config
 from models.job import PROGRESS_MESSAGES, JobStatus
 from services.crawler import crawl_website, normalize_url
-from services.extractor import get_extractor, merge_parsed_benefits_from_crawl
+from services.extractor import HeuristicExtractor, get_extractor, merge_parsed_benefits_from_crawl
 from services.storage import storage
 
 log = logging.getLogger(__name__)
@@ -101,16 +101,20 @@ class JobQueue:
         )
         try:
             result = get_extractor().extract(company_name, website_url, crawl.combined_text)
-            result = merge_parsed_benefits_from_crawl(result, crawl.combined_text)
         except RuntimeError as exc:
-            log.warning("Job %s bedrock error: %s", job_id, exc)
-            storage.update_job(
-                job_id,
-                status=JobStatus.FAILED.value,
-                error_message=str(exc),
-                progress=str(exc),
-            )
-            return
+            if "Ungültige JSON-Antwort" in str(exc):
+                log.warning("Job %s LLM JSON invalid, falling back to heuristic: %s", job_id, exc)
+                result = HeuristicExtractor().extract(company_name, website_url, crawl.combined_text)
+            else:
+                log.warning("Job %s bedrock error: %s", job_id, exc)
+                storage.update_job(
+                    job_id,
+                    status=JobStatus.FAILED.value,
+                    error_message=str(exc),
+                    progress=str(exc),
+                )
+                return
+        result = merge_parsed_benefits_from_crawl(result, crawl.combined_text)
 
         log.info("Job %s extract completed", job_id)
         progress("save")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from abc import ABC, abstractmethod
 
@@ -12,6 +13,8 @@ import config
 from models.analysis import AnalysisResult, JobListing
 from services.secrets_store import get_api_key
 from services.job_validation import filter_employer_benefits, is_plausible_job, looks_like_job_title
+
+log = logging.getLogger(__name__)
 
 EXTRACTION_PROMPT = """Analysiere den folgenden Website-Text eines Unternehmens.
 Extrahiere strukturierte Firmendaten auf Deutsch.
@@ -37,8 +40,8 @@ WICHTIG für jobs:
 - Wenn keine Stellen gefunden: "jobs": []
 
 WICHTIG für employer_benefits (pro Stelle):
-- Nur echte Vorteile/Angebote (z. B. Homeoffice, flexible Arbeitszeiten, Weiterbildung, Team-Events)
-- Nutze den Abschnitt "Unsere Angebote" / Benefits der jeweiligen Stellenanzeige vollständig
+- Wenn im Text "=== UNSERE ANGEBOTE / BENEFITS (Stelle) ===" steht: setze "employer_benefits" auf [] (werden automatisch ergänzt)
+- Sonst nur echte Vorteile/Angebote (z. B. Homeoffice, Weiterbildung, Team-Events)
 - KEINE Anforderungen oder Voraussetzungen (Führerschein, Berufserfahrung, Studium, "erforderlich", Qualifikationen)
 - Anforderungen gehören in "tasks" oder werden weggelassen — niemals unter employer_benefits
 
@@ -54,6 +57,50 @@ class BaseExtractor(ABC):
     @abstractmethod
     def extract(self, company_name: str, website_url: str, text: str) -> AnalysisResult:
         raise NotImplementedError
+
+
+def condense_crawl_text_for_llm(text: str, max_chars: int = 18000) -> str:
+    """Reduce crawl payload for the LLM — benefits are merged from crawl separately."""
+    if len(text) <= max_chars:
+        return text
+
+    parts: list[str] = []
+    for section in re.split(r"(?=^=== )", text, flags=re.M):
+        section = section.strip()
+        if not section:
+            continue
+        if section.startswith("=== HOMEPAGE") or section.startswith("=== KARRIERE"):
+            parts.append(section[:6000])
+            continue
+        if section.startswith("=== STELLE"):
+            header, _, body = section.partition("\n")
+            lines = [ln.strip() for ln in body.split("\n") if ln.strip()]
+            title = next((ln for ln in lines if looks_like_job_title(ln)), lines[0] if lines else "")
+            benefits_marker = "=== UNSERE ANGEBOTE / BENEFITS (Stelle) ==="
+            if benefits_marker in body:
+                benefits_block = body.split(benefits_marker, 1)[1].split("\n=== ", 1)[0].strip()
+                task_lines = [
+                    ln
+                    for ln in lines[1:8]
+                    if ln != title
+                    and not ln.startswith("=== ")
+                    and benefits_marker not in ln
+                    and len(ln) > 10
+                ]
+                condensed_body = "\n".join([title, *task_lines[:4]])
+                if benefits_block:
+                    condensed_body += f"\n\n{benefits_marker}\n{benefits_block[:2500]}"
+            else:
+                condensed_body = "\n".join(lines[:12])[:1500]
+            parts.append(f"{header}\n{condensed_body}")
+            continue
+        if section.startswith("=== BENEFITS"):
+            parts.append(section[:4000])
+            continue
+        parts.append(section[:2000])
+
+    condensed = "\n\n".join(parts)
+    return condensed[:max_chars]
 
 
 def _normalize_job_title(title: str) -> str:
@@ -267,14 +314,16 @@ class BedrockExtractor(BaseExtractor):
             ),
         )
         prompt = EXTRACTION_PROMPT.format(
-            company_name=company_name, website_url=website_url, text=text[:20000]
+            company_name=company_name,
+            website_url=website_url,
+            text=condense_crawl_text_for_llm(text),
         )
         try:
             response = client.converse(
                 modelId=config.AWS_BEDROCK_MODEL_ID,
                 system=[{"text": "Du extrahierst strukturierte Recruiting-Daten. Antworte nur mit JSON."}],
                 messages=[{"role": "user", "content": [{"text": prompt}]}],
-                inferenceConfig={"maxTokens": 2048, "temperature": 0.2},
+                inferenceConfig={"maxTokens": 8192, "temperature": 0.2},
             )
         except ClientError as exc:
             code = exc.response.get("Error", {}).get("Code", "ClientError")
@@ -284,9 +333,21 @@ class BedrockExtractor(BaseExtractor):
             raise RuntimeError(f"AWS Bedrock: {exc}") from exc
 
         raw = response["output"]["message"]["content"][0]["text"]
+        stop_reason = response.get("stopReason") or response.get("output", {}).get("stopReason")
+        if stop_reason == "max_tokens":
+            log.warning("Bedrock response truncated (max_tokens); attempting JSON repair")
+
         try:
-            payload = json.loads(_extract_json(raw))
+            payload = _parse_model_json(raw)
         except json.JSONDecodeError as exc:
+            log.warning(
+                "Bedrock JSON parse failed (len=%s): %s",
+                len(raw),
+                raw[:300].replace("\n", " "),
+            )
+            if config.USE_HEURISTIC_FALLBACK:
+                result = HeuristicExtractor().extract(company_name, website_url, text)
+                return merge_parsed_benefits_from_crawl(result, text)
             raise RuntimeError("AWS Bedrock: Ungültige JSON-Antwort vom Modell.") from exc
         return _payload_to_result(payload, company_name, website_url)
 
@@ -313,7 +374,38 @@ def _extract_json(raw: str) -> str:
     if raw.startswith("```"):
         raw = re.sub(r"^```(?:json)?\n?", "", raw)
         raw = re.sub(r"\n?```$", "", raw)
+    return raw.strip()
+
+
+def _repair_truncated_json(raw: str) -> str:
+    start = raw.find("{")
+    if start < 0:
+        return raw
+    raw = raw[start:]
+    raw = re.sub(r',\s*"[^"\n\\]*(?:\\.[^"\n\\]*)*$', "", raw)
+    raw = re.sub(r",\s*$", "", raw)
+    raw += "]" * max(0, raw.count("[") - raw.count("]"))
+    raw += "}" * max(0, raw.count("{") - raw.count("}"))
     return raw
+
+
+def _parse_model_json(raw: str) -> dict:
+    cleaned = _extract_json(raw)
+    for candidate in (cleaned, _repair_truncated_json(cleaned)):
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+
+    match = re.search(r"\{[\s\S]*\}", cleaned)
+    if match:
+        for candidate in (match.group(0), _repair_truncated_json(match.group(0))):
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+
+    raise json.JSONDecodeError("No valid JSON object in model response", cleaned, 0)
 
 
 def _payload_to_result(payload: dict, company_name: str, website_url: str) -> AnalysisResult:
