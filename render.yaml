@@ -20,7 +20,7 @@ services:
       - key: AWS_BEDROCK_REGION
         value: "eu-north-1"
       - key: AWS_BEDROCK_MODEL_ID
-        value: "eu.anthropic.claude-3-5-haiku-20241022-v1:0"
+        value: "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
       # Im Render-Dashboard setzen (sync: false = Secret, nicht aus Repo):
       - key: SUPABASE_URL
         sync: false

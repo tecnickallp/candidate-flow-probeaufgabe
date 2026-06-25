@@ -18,7 +18,7 @@ USE_HEURISTIC_FALLBACK = os.getenv("USE_HEURISTIC_FALLBACK", "true").lower() in 
 
 AWS_BEDROCK_REGION = os.getenv("AWS_BEDROCK_REGION", "eu-north-1").strip()
 AWS_BEDROCK_MODEL_ID = os.getenv(
-    "AWS_BEDROCK_MODEL_ID", "eu.anthropic.claude-opus-4-8"
+    "AWS_BEDROCK_MODEL_ID", "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
 ).strip()
 
 JOB_TIMEOUT_SECONDS = int(os.getenv("JOB_TIMEOUT_SECONDS", "90"))
