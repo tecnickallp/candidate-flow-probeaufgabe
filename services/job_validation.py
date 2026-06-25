@@ -73,12 +73,33 @@ JOB_REQUIREMENT_RE = re.compile(
     re.I,
 )
 
+EMPLOYER_PAID_LICENSE_RE = re.compile(
+    r"übernahme|uebernahme|kosten|bezahlen|finanzier|wir investieren|"
+    r"stellen.*(?:zur verfügung|bereit)|(?:wir|unternehmen).*(?:zahlt|übernimmt|uebernimmt)",
+    re.I,
+)
+
+JUNK_JOB_LINK_RE = re.compile(
+    r"cdn-cgi|email-protection|wp-content/uploads|\.(?:png|jpe?g|gif|webp|svg|pdf|zip)(?:\?|$)",
+    re.I,
+)
+
+
+def is_junk_job_link(url: str) -> bool:
+    return bool(JUNK_JOB_LINK_RE.search(url or ""))
+
 
 def is_job_requirement(text: str) -> bool:
     text = (text or "").strip()
     if not text:
         return False
-    return bool(JOB_REQUIREMENT_RE.search(text))
+    if not JOB_REQUIREMENT_RE.search(text):
+        return False
+    if EMPLOYER_PAID_LICENSE_RE.search(text) and re.search(
+        r"f(?:ue|[üu])hrerschein|driver'?s?\s*licen[cs]e", text, re.I
+    ):
+        return False
+    return True
 
 
 def filter_employer_benefits(items: list[str]) -> list[str]:

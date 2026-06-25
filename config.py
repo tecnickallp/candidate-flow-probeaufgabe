@@ -22,7 +22,7 @@ AWS_BEDROCK_MODEL_ID = os.getenv(
 ).strip()
 
 JOB_TIMEOUT_SECONDS = int(os.getenv("JOB_TIMEOUT_SECONDS", "90"))
-MAX_CRAWL_PAGES = int(os.getenv("MAX_CRAWL_PAGES", "10"))
+MAX_CRAWL_PAGES = int(os.getenv("MAX_CRAWL_PAGES", "15"))
 
 USER_AGENT = (
     "CandidateFlow-Analyzer/1.0 (+https://candidate-flow.de; recruitment research bot)"

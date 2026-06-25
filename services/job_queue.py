@@ -7,7 +7,7 @@ import httpx
 import config
 from models.job import PROGRESS_MESSAGES, JobStatus
 from services.crawler import crawl_website, normalize_url
-from services.extractor import get_extractor
+from services.extractor import get_extractor, merge_parsed_benefits_from_crawl
 from services.storage import storage
 
 log = logging.getLogger(__name__)
@@ -101,6 +101,7 @@ class JobQueue:
         )
         try:
             result = get_extractor().extract(company_name, website_url, crawl.combined_text)
+            result = merge_parsed_benefits_from_crawl(result, crawl.combined_text)
         except RuntimeError as exc:
             log.warning("Job %s bedrock error: %s", job_id, exc)
             storage.update_job(

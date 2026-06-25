@@ -56,6 +56,60 @@ class BaseExtractor(ABC):
         raise NotImplementedError
 
 
+def _normalize_job_title(title: str) -> str:
+    return re.sub(r"\s+", " ", (title or "").lower()).strip()
+
+
+def _benefits_from_job_block(chunk: str) -> list[str]:
+    if "=== UNSERE ANGEBOTE / BENEFITS (Stelle) ===" not in chunk:
+        return []
+    offer_block = chunk.split("=== UNSERE ANGEBOTE / BENEFITS (Stelle) ===", 1)[1]
+    benefits: list[str] = []
+    for line in offer_block.split("\n"):
+        line = line.strip().lstrip("-").strip()
+        if line and not line.startswith("==="):
+            benefits.append(line)
+    return filter_employer_benefits(benefits)
+
+
+def merge_parsed_benefits_from_crawl(result: AnalysisResult, crawl_text: str) -> AnalysisResult:
+    block_pattern = r"=== STELLE \(([^)]+)\) ===\n([\s\S]*?)(?=\n=== STELLE \(|\n=== BENEFITS ===|\Z)"
+    crawl_benefits_by_title: dict[str, list[str]] = {}
+
+    for match in re.finditer(block_pattern, crawl_text):
+        chunk = match.group(2)
+        lines = [ln.strip() for ln in chunk.split("\n") if ln.strip()]
+        title = next((ln for ln in lines if looks_like_job_title(ln)), "")
+        if not title:
+            continue
+        parsed = _benefits_from_job_block(chunk)
+        if parsed:
+            crawl_benefits_by_title[_normalize_job_title(title)] = parsed
+
+    for job in result.jobs:
+        parsed = crawl_benefits_by_title.get(_normalize_job_title(job.title))
+        if not parsed:
+            continue
+        merged = list(job.employer_benefits)
+        seen = {benefit.lower() for benefit in merged}
+        for benefit in parsed:
+            if benefit.lower() not in seen:
+                merged.append(benefit)
+                seen.add(benefit.lower())
+        job.employer_benefits = filter_employer_benefits(merged)
+
+    company_benefits = list(result.benefits)
+    company_seen = {benefit.lower() for benefit in company_benefits}
+    for job in result.jobs:
+        for benefit in job.employer_benefits:
+            if benefit.lower() not in company_seen:
+                company_benefits.append(benefit)
+                company_seen.add(benefit.lower())
+
+    result.benefits = filter_employer_benefits(company_benefits)
+    return result
+
+
 def _benefits_from_text(text: str) -> list[str]:
     match = re.search(r"=== BENEFITS ===\n([\s\S]*?)(?=\n=== |\Z)", text)
     if not match:
