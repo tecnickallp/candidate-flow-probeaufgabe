@@ -10,7 +10,11 @@ from bs4 import BeautifulSoup
 
 import config
 from services.benefits_parser import extract_benefits_from_html
-from services.spa_parser import extract_spa_content, is_spa_shell
+from services.page_extractors import (
+    extract_job_entries_from_text,
+    extract_page_content,
+    html_to_visible_text,
+)
 from services.job_validation import (
     has_job_signal,
     is_junk_job_link,
@@ -75,12 +79,7 @@ def url_exists(client: httpx.Client, url: str) -> str | None:
 
 
 def html_to_text(html: str, max_chars: int = 12000) -> str:
-    soup = BeautifulSoup(html, "html.parser")
-    for tag in soup(["script", "style", "noscript", "svg", "iframe"]):
-        tag.decompose()
-    text = soup.get_text("\n", strip=True)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text[:max_chars]
+    return html_to_visible_text(html, max_chars)
 
 
 def find_career_url(client: httpx.Client, base_url: str, homepage_html: str) -> str | None:
@@ -221,33 +220,6 @@ def find_job_links(base_url: str, career_url: str, career_html: str, limit: int 
     return [url for url, _ in ranked[:limit]]
 
 
-def extract_job_entries_from_text(text: str, source_url: str) -> list[tuple[str, str]]:
-    lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
-    entries: list[tuple[str, str]] = []
-    seen_titles: set[str] = set()
-
-    for i, line in enumerate(lines):
-        if not looks_like_job_title(line):
-            continue
-        key = line.lower()
-        if key in seen_titles:
-            continue
-        seen_titles.add(key)
-        context_lines = [line]
-        for follow in lines[i + 1 : i + 6]:
-            if looks_like_job_title(follow):
-                break
-            if follow.lower().startswith(("jetzt bewerben", "kontakt", "social media")):
-                break
-            if len(follow) > 15 and not is_non_job_page("", follow):
-                context_lines.append(follow)
-        body = "\n".join(context_lines)
-        slug = re.sub(r"[^a-z0-9]+", "-", line.lower())[:48].strip("-")
-        entries.append((f"{source_url}#job-{slug}", body))
-
-    return entries
-
-
 def _append_unique_jobs(target: list[tuple[str, str]], entries: list[tuple[str, str]]) -> None:
     existing = {text.split("\n", 1)[0].lower() for _, text in target}
     for url, text in entries:
@@ -292,24 +264,13 @@ def crawl_website(website_url: str, progress_callback=None) -> CrawlResult:
         if career_url:
             try:
                 career_html = fetch_page(client, career_url)
-                result.career_text = html_to_text(career_html)
-                _append_unique_jobs(
-                    result.job_pages,
-                    extract_job_entries_from_text(result.career_text, career_url),
-                )
-                if is_spa_shell(career_html) or len(result.career_text) < 300:
-                    spa_jobs, spa_benefits, spa_text = extract_spa_content(
-                        client, career_html, career_url
-                    )
-                    if spa_jobs:
-                        _append_unique_jobs(result.job_pages, spa_jobs)
-                    if spa_text:
-                        extra = spa_text if not result.career_text else f"{result.career_text}\n\n{spa_text}"
-                        result.career_text = extra[:15000]
-                    for benefit in spa_benefits:
-                        key = benefit.lower()
-                        if key not in {item.lower() for item in result.benefits}:
-                            result.benefits.append(benefit)
+                page_content = extract_page_content(client, career_html, career_url)
+                result.career_text = page_content.text or html_to_text(career_html)
+                _append_unique_jobs(result.job_pages, page_content.jobs)
+                for benefit in page_content.benefits:
+                    key = benefit.lower()
+                    if key not in {item.lower() for item in result.benefits}:
+                        result.benefits.append(benefit)
             except httpx.HTTPError:
                 result.career_text = ""
 

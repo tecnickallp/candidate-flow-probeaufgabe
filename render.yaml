@@ -17,6 +17,11 @@ services:
         value: "false"
       - key: JOB_TIMEOUT_SECONDS
         value: "240"
+      # Optional: Headless-Browser-Fallback für SPAs (Build: playwright install chromium)
+      # - key: USE_PLAYWRIGHT_FALLBACK
+      #   value: "true"
+      # - key: PLAYWRIGHT_TIMEOUT_SECONDS
+      #   value: "25"
       - key: AWS_BEDROCK_REGION
         value: "eu-north-1"
       - key: AWS_BEDROCK_MODEL_ID
