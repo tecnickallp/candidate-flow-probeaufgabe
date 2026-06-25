@@ -64,6 +64,37 @@ CONTACT_LINE_RE = re.compile(
     re.I,
 )
 
+JOB_REQUIREMENT_RE = re.compile(
+    r"führerschein|fuehrerschein|driver'?s?\s*licen[cs]e|klasse\s*[abc]\d?|"
+    r"\berforderlich\b|\bvoraussetzung|\bmitbringen\b|bewerbungsunterlagen|"
+    r"mindestens\s+\d+\s+jahre\s+(?:berufserfahrung|erfahrung)|"
+    r"(?:abgeschlossene[rn]?\s+)?(?:ausbildung|studium)\s+(?:als|im\s+bereich)|"
+    r"eigenes\s+werkzeug|schwer(?:es)?\s+heben",
+    re.I,
+)
+
+
+def is_job_requirement(text: str) -> bool:
+    text = (text or "").strip()
+    if not text:
+        return False
+    return bool(JOB_REQUIREMENT_RE.search(text))
+
+
+def filter_employer_benefits(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    filtered: list[str] = []
+    for item in items:
+        cleaned = item.strip()
+        if not cleaned or is_job_requirement(cleaned):
+            continue
+        key = cleaned.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        filtered.append(cleaned)
+    return filtered
+
 
 def has_gender_inclusive_marking(text: str) -> bool:
     return bool(GENDER_INCLUSIVE_RE.search(text))

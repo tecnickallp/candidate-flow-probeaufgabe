@@ -4,7 +4,7 @@ import re
 from bs4 import BeautifulSoup, Tag
 
 BENEFIT_SECTION_RE = re.compile(
-    r"unser\s+angebot|unsere\s+benefits?|deine\s+vorteile|das\s+bieten\s+wir|"
+    r"unsere?\s+angebote?|unser\s+angebot|unsere\s+benefits?|deine\s+vorteile|das\s+bieten\s+wir|"
     r"was\s+wir\s+bieten|dein\s+plus|unser\s+plus|benefits?|vorteile|"
     r"warum\s+(?:bei\s+uns|zu\s+uns|.+?arbeiten)|employee\s+benefits?",
     re.I,
@@ -68,10 +68,13 @@ def _extract_from_icon_boxes(soup: BeautifulSoup) -> list[str]:
 
     selectors = [
         ".elementor-widget-icon-box",
+        ".elementor-widget-heading + .elementor-widget-text-editor",
         "[class*='icon-box']",
         "[class*='benefit']",
         "[class*='vorteil']",
         "[class*='feature-box']",
+        "[class*='offer-card']",
+        "[class*='angebot']",
     ]
     for selector in selectors:
         for box in soup.select(selector):
@@ -129,7 +132,7 @@ def _find_benefit_container(heading: Tag) -> Tag | None:
             best_score = score
             best = node
         node = node.parent
-    return best if best_score >= 3 else None
+    return best if best_score >= 2 else None
 
 
 def _extract_from_section_headings(soup: BeautifulSoup) -> list[str]:
@@ -148,14 +151,37 @@ def _extract_from_section_headings(soup: BeautifulSoup) -> list[str]:
             BeautifulSoup(str(container), "html.parser")
         )
         if len(section_items) < 2:
-            section_items = _extract_from_divi_blurbs(container)
+            section_items = _extract_from_elementor_columns(container)
         if len(section_items) < 2:
+            section_items = _extract_from_divi_blurbs(container)
+        if len(section_items) < 1:
             section_items = _extract_heading_paragraph_pairs(container)
 
         for item in section_items:
             if item.lower() not in seen:
                 seen.add(item.lower())
                 benefits.append(item)
+
+    return benefits
+
+
+def _extract_from_elementor_columns(container: Tag) -> list[str]:
+    benefits: list[str] = []
+    seen: set[str] = set()
+
+    for column in container.select(".elementor-column, .e-con-inner > .e-con"):
+        title_el = column.find(["h3", "h4", "h5", "strong"])
+        if not title_el:
+            continue
+        title = _heading_text(title_el)
+        if _looks_like_job_title(title):
+            continue
+        desc_el = column.find("p")
+        description = _heading_text(desc_el) if desc_el else ""
+        benefit = _format_benefit(title, description)
+        if benefit and benefit.lower() not in seen:
+            seen.add(benefit.lower())
+            benefits.append(benefit)
 
     return benefits
 
@@ -230,4 +256,4 @@ def extract_benefits_from_html(html: str) -> list[str]:
                 seen.add(key)
                 collected.append(item)
 
-    return collected[:20]
+    return collected[:25]

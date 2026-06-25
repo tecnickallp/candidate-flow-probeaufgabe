@@ -226,8 +226,15 @@ def crawl_website(website_url: str, progress_callback=None) -> CrawlResult:
                 try:
                     page_html = fetch_page(client, job_url)
                     page_text = html_to_text(page_html, 8000)
+                    page_benefits = extract_benefits_from_html(page_html)
                 except httpx.HTTPError:
                     continue
+
+                if page_benefits:
+                    benefits_block = "=== UNSERE ANGEBOTE / BENEFITS (Stelle) ===\n" + "\n".join(
+                        f"- {b}" for b in page_benefits
+                    )
+                    page_text = f"{page_text}\n\n{benefits_block}" if page_text else benefits_block
 
                 if is_listing_page(job_url) or extract_job_entries_from_text(page_text, job_url):
                     _append_unique_jobs(
@@ -246,6 +253,19 @@ def crawl_website(website_url: str, progress_callback=None) -> CrawlResult:
                 if key not in seen_benefits:
                     seen_benefits.add(key)
                     result.benefits.append(benefit)
+
+        for url, text in result.job_pages:
+            if "=== UNSERE ANGEBOTE / BENEFITS (Stelle) ===" not in text:
+                continue
+            block = text.split("=== UNSERE ANGEBOTE / BENEFITS (Stelle) ===", 1)[1]
+            for line in block.split("\n"):
+                line = line.strip().lstrip("-").strip()
+                if not line:
+                    continue
+                key = line.lower()
+                if key not in seen_benefits:
+                    seen_benefits.add(key)
+                    result.benefits.append(line)
 
     parts = [f"=== HOMEPAGE ===\n{result.homepage_text}"]
     if result.career_text:

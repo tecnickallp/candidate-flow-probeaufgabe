@@ -11,7 +11,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 import config
 from models.analysis import AnalysisResult, JobListing
 from services.secrets_store import get_api_key
-from services.job_validation import is_plausible_job, looks_like_job_title
+from services.job_validation import filter_employer_benefits, is_plausible_job, looks_like_job_title
 
 EXTRACTION_PROMPT = """Analysiere den folgenden Website-Text eines Unternehmens.
 Extrahiere strukturierte Firmendaten auf Deutsch.
@@ -35,6 +35,12 @@ WICHTIG für jobs:
 - KEINE Über-uns-, Kontakt-, Impressum-, Team- oder Firmenseiten
 - KEINE Einträge deren Aufgaben nur E-Mail/Telefon sind
 - Wenn keine Stellen gefunden: "jobs": []
+
+WICHTIG für employer_benefits (pro Stelle):
+- Nur echte Vorteile/Angebote (z. B. Homeoffice, flexible Arbeitszeiten, Weiterbildung, Team-Events)
+- Nutze den Abschnitt "Unsere Angebote" / Benefits der jeweiligen Stellenanzeige vollständig
+- KEINE Anforderungen oder Voraussetzungen (Führerschein, Berufserfahrung, Studium, "erforderlich", Qualifikationen)
+- Anforderungen gehören in "tasks" oder werden weggelassen — niemals unter employer_benefits
 
 Firmenname: {company_name}
 Website: {website_url}
@@ -80,7 +86,7 @@ class HeuristicExtractor(BaseExtractor):
                 industry = label
                 break
 
-        benefits = _benefits_from_text(text)
+        benefits = filter_employer_benefits(_benefits_from_text(text))
         if not benefits:
             for phrase in [
                 "homeoffice", "flexible arbeitszeiten", "weiterbildung", "team-events",
@@ -90,6 +96,7 @@ class HeuristicExtractor(BaseExtractor):
                     benefits.append(phrase.capitalize())
         if not benefits:
             benefits = ["Attraktives Arbeitsumfeld", "Teamorientierte Kultur"]
+        benefits = filter_employer_benefits(benefits)
 
         vibe = (
             "Das Unternehmen kommuniziert professionell und arbeitgeberorientiert. "
@@ -111,12 +118,26 @@ class HeuristicExtractor(BaseExtractor):
                 title = next((ln for ln in lines if 4 < len(ln) < 120 and is_plausible_job(ln, [], job_url)), "")
             if not title:
                 continue
-            tasks = [ln for ln in lines[1:10] if len(ln) > 12 and not ln.startswith("=== STELLE") and not re.search(r"@|tel:", ln, re.I)][:5]
+            job_benefits: list[str] = []
+            if "=== UNSERE ANGEBOTE / BENEFITS (Stelle) ===" in chunk:
+                offer_block = chunk.split("=== UNSERE ANGEBOTE / BENEFITS (Stelle) ===", 1)[1]
+                for ln in offer_block.split("\n"):
+                    ln = ln.strip().lstrip("-").strip()
+                    if ln and not ln.startswith("==="):
+                        job_benefits.append(ln)
+            job_benefits = filter_employer_benefits(job_benefits) or filter_employer_benefits(benefits[:5])
+            tasks = [
+                ln
+                for ln in lines[1:10]
+                if len(ln) > 12
+                and not ln.startswith("=== ")
+                and not re.search(r"@|tel:", ln, re.I)
+            ][:5]
             if not is_plausible_job(title, tasks, job_url):
                 continue
             if not tasks:
                 tasks = ["Aufgaben gemäß Stellenbeschreibung auf der Karriereseite"]
-            jobs.append(JobListing(title=title, tasks=tasks, employer_benefits=benefits[:3]))
+            jobs.append(JobListing(title=title, tasks=tasks, employer_benefits=job_benefits))
 
         return AnalysisResult(
             company_name=company_name,
@@ -252,14 +273,19 @@ def _payload_to_result(payload: dict, company_name: str, website_url: str) -> An
             JobListing(
                 title=title,
                 tasks=tasks,
-                employer_benefits=item.get("employer_benefits") or [],
+                employer_benefits=filter_employer_benefits(item.get("employer_benefits") or []),
             )
         )
+    company_benefits = filter_employer_benefits(payload.get("benefits") or [])
+    for job in jobs:
+        for benefit in job.employer_benefits:
+            if benefit.lower() not in {b.lower() for b in company_benefits}:
+                company_benefits.append(benefit)
     return AnalysisResult(
         company_name=company_name,
         website_url=website_url,
         industry=payload.get("industry") or "",
-        benefits=payload.get("benefits") or [],
+        benefits=company_benefits,
         vibe=payload.get("vibe") or "",
         jobs=jobs,
     )
