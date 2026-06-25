@@ -6,7 +6,7 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 120
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 180
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
@@ -16,8 +16,11 @@ services:
       - key: USE_HEURISTIC_FALLBACK
         value: "false"
       - key: JOB_TIMEOUT_SECONDS
-        value: "90"
+        value: "180"
       - key: AWS_BEDROCK_REGION
         value: "eu-north-1"
       - key: AWS_BEDROCK_MODEL_ID
         value: "eu.anthropic.claude-opus-4-8"
+      # Secret nur im Render-Dashboard setzen (nicht ins Repo):
+      # - AWS_BEARER_TOKEN_BEDROCK=ABSK...
+      # Optional: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, MASTER_ENCRYPTION_KEY

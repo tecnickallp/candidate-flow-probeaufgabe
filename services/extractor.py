@@ -174,6 +174,7 @@ class BedrockExtractor(BaseExtractor):
         import os
 
         import boto3
+        from botocore.exceptions import BotoCoreError, ClientError
 
         api_key = get_api_key("bedrock")
         if not api_key:
@@ -184,12 +185,20 @@ class BedrockExtractor(BaseExtractor):
         prompt = EXTRACTION_PROMPT.format(
             company_name=company_name, website_url=website_url, text=text[:30000]
         )
-        response = client.converse(
-            modelId=config.AWS_BEDROCK_MODEL_ID,
-            system=[{"text": "Du extrahierst strukturierte Recruiting-Daten. Antworte nur mit JSON."}],
-            messages=[{"role": "user", "content": [{"text": prompt}]}],
-            inferenceConfig={"maxTokens": 4096, "temperature": 0.2},
-        )
+        try:
+            response = client.converse(
+                modelId=config.AWS_BEDROCK_MODEL_ID,
+                system=[{"text": "Du extrahierst strukturierte Recruiting-Daten. Antworte nur mit JSON."}],
+                messages=[{"role": "user", "content": [{"text": prompt}]}],
+                inferenceConfig={"maxTokens": 4096, "temperature": 0.2},
+            )
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "ClientError")
+            message = exc.response.get("Error", {}).get("Message", str(exc))
+            raise RuntimeError(f"AWS Bedrock ({code}): {message}") from exc
+        except BotoCoreError as exc:
+            raise RuntimeError(f"AWS Bedrock: {exc}") from exc
+
         raw = response["output"]["message"]["content"][0]["text"]
         payload = json.loads(_extract_json(raw))
         return _payload_to_result(payload, company_name, website_url)
