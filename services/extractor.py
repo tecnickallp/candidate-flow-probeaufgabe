@@ -169,6 +169,32 @@ class AnthropicExtractor(BaseExtractor):
         return _payload_to_result(payload, company_name, website_url)
 
 
+class BedrockExtractor(BaseExtractor):
+    def extract(self, company_name: str, website_url: str, text: str) -> AnalysisResult:
+        import os
+
+        import boto3
+
+        api_key = get_api_key("bedrock")
+        if not api_key:
+            raise RuntimeError("LLM-API-Key nicht konfiguriert")
+        os.environ["AWS_BEARER_TOKEN_BEDROCK"] = api_key
+
+        client = boto3.client("bedrock-runtime", region_name=config.AWS_BEDROCK_REGION)
+        prompt = EXTRACTION_PROMPT.format(
+            company_name=company_name, website_url=website_url, text=text[:30000]
+        )
+        response = client.converse(
+            modelId=config.AWS_BEDROCK_MODEL_ID,
+            system=[{"text": "Du extrahierst strukturierte Recruiting-Daten. Antworte nur mit JSON."}],
+            messages=[{"role": "user", "content": [{"text": prompt}]}],
+            inferenceConfig={"maxTokens": 4096, "temperature": 0.2},
+        )
+        raw = response["output"]["message"]["content"][0]["text"]
+        payload = json.loads(_extract_json(raw))
+        return _payload_to_result(payload, company_name, website_url)
+
+
 class GeminiExtractor(BaseExtractor):
     def extract(self, company_name: str, website_url: str, text: str) -> AnalysisResult:
         import google.generativeai as genai
@@ -226,6 +252,8 @@ def get_extractor() -> BaseExtractor:
         return AnthropicExtractor()
     if provider == "gemini" and get_api_key("gemini"):
         return GeminiExtractor()
+    if provider == "bedrock" and get_api_key("bedrock"):
+        return BedrockExtractor()
     if config.USE_HEURISTIC_FALLBACK:
         return HeuristicExtractor()
     raise RuntimeError("LLM-API-Key nicht konfiguriert. Bitte unter /settings hinterlegen.")

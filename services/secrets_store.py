@@ -10,12 +10,14 @@ SECRET_NAMES = {
     "openai": "openai_api_key",
     "anthropic": "anthropic_api_key",
     "gemini": "gemini_api_key",
+    "bedrock": "bedrock_api_key",
 }
 
 ENV_KEYS = {
     "openai": "OPENAI_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
     "gemini": "GEMINI_API_KEY",
+    "bedrock": "AWS_BEARER_TOKEN_BEDROCK",
 }
 
 

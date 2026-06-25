@@ -12,12 +12,12 @@ services:
       - key: PYTHON_VERSION
         value: "3.12.8"
       - key: LLM_PROVIDER
-        value: openai
+        value: bedrock
       - key: USE_HEURISTIC_FALLBACK
-        value: "true"
+        value: "false"
       - key: JOB_TIMEOUT_SECONDS
         value: "90"
-      # In Render unter "Environment" setzen (nicht ins Repo committen):
-      # - OPENAI_API_KEY (oder ANTHROPIC_API_KEY / GEMINI_API_KEY)
-      # - SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (empfohlen für persistente DB)
-      # - MASTER_ENCRYPTION_KEY (nur wenn Keys über /settings gespeichert werden sollen)
+      - key: AWS_BEDROCK_REGION
+        value: "eu-north-1"
+      - key: AWS_BEDROCK_MODEL_ID
+        value: "eu.anthropic.claude-opus-4-8"

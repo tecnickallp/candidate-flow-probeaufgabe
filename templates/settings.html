@@ -32,11 +32,12 @@
                   <option value="openai" {% if provider == 'openai' %}selected{% endif %}>OpenAI</option>
                   <option value="anthropic" {% if provider == 'anthropic' %}selected{% endif %}>Anthropic Claude</option>
                   <option value="gemini" {% if provider == 'gemini' %}selected{% endif %}>Google Gemini</option>
+                  <option value="bedrock" {% if provider == 'bedrock' %}selected{% endif %}>AWS Bedrock</option>
                 </select>
               </div>
               <div class="analysis-form__field">
                 <label for="api-key" class="analysis-form__label">API-Key</label>
-                <input type="password" id="api-key" name="api_key" placeholder="sk-…" autocomplete="off" required>
+                <input type="password" id="api-key" name="api_key" placeholder="sk-… / ABSK…" autocomplete="off" required>
               </div>
               <button type="submit" class="button button--primary button--sm">Key speichern</button>
               <p id="settings-status" class="form-message" hidden></p>
