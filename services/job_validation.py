@@ -55,7 +55,8 @@ JOB_SIGNAL_RE = re.compile(
 )
 
 LISTING_PAGE_RE = re.compile(
-    r"jobs-bei|stellenangebot|job-list|offene-stellen|vacancies|karriere/jobs",
+    r"jobs-bei|stellenangebot|job-list|offene-stellen|vacancies|karriere/jobs|"
+    r"stellenb.o.rse|stellenboerse|job-board|jobboard",
     re.I,
 )
 

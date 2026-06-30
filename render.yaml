@@ -5,7 +5,7 @@ services:
     name: candidate-flow-analyzer
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && playwright install chromium
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 180 --capture-output --log-level info
     healthCheckPath: /health
     envVars:

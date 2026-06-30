@@ -23,10 +23,12 @@ from services.job_validation import (
     looks_like_job_title,
     score_job_link,
 )
+from services.job_board_parser import is_job_board_page
 
 CAREER_PATHS = [
     "/karriere", "/jobs", "/careers", "/stellen", "/offene-stellen",
     "/career", "/join-us", "/work-with-us", "/jobboerse", "/stellenangebote",
+    "/karriere/stellenboerse", "/karriere/stellenbörse",
 ]
 
 CAREER_KEYWORDS = re.compile(
@@ -229,6 +231,103 @@ def _append_unique_jobs(target: list[tuple[str, str]], entries: list[tuple[str, 
             existing.add(title)
 
 
+def _listing_page_urls(client: httpx.Client, website_url: str, homepage_html: str) -> list[str]:
+    urls: list[str] = []
+    seen: set[str] = set()
+
+    def add(url: str | None) -> None:
+        if not url:
+            return
+        normalized = url.rstrip("/")
+        if normalized in seen:
+            return
+        seen.add(normalized)
+        urls.append(url)
+
+    if is_listing_page(website_url) or is_job_board_page(homepage_html):
+        add(website_url)
+
+    soup = BeautifulSoup(homepage_html, "html.parser")
+    for anchor in soup.find_all("a", href=True):
+        href = urljoin(website_url, anchor["href"].strip())
+        label = anchor.get_text(" ", strip=True)
+        if not _same_domain(website_url, href):
+            continue
+        if is_listing_page(href) or re.search(r"stellenb.o.rse|stellenboerse", href, re.I):
+            resolved = url_exists(client, href)
+            add(resolved or href)
+    return urls
+
+
+def _process_career_page(
+    client: httpx.Client,
+    result: CrawlResult,
+    career_url: str,
+    progress_callback=None,
+) -> str:
+    try:
+        career_html = fetch_page(client, career_url)
+    except httpx.HTTPError:
+        result.career_text = ""
+        return ""
+
+    page_content = extract_page_content(client, career_html, career_url)
+    if result.career_page_url == career_url or not result.career_text:
+        result.career_text = page_content.text or html_to_text(career_html)
+    _append_unique_jobs(result.job_pages, page_content.jobs)
+    for benefit in page_content.benefits:
+        key = benefit.lower()
+        if key not in {item.lower() for item in result.benefits}:
+            result.benefits.append(benefit)
+
+    if progress_callback:
+        progress_callback("fetch_jobs")
+
+    embedded_jobs = extract_embedded_job_detail_links(career_html, career_url)
+    fetched_urls: set[str] = set()
+    max_detail_fetches = config.MAX_CRAWL_PAGES
+
+    def _fetch_job_detail(job_url: str, job_title: str = "") -> None:
+        if job_url in fetched_urls or len(fetched_urls) >= max_detail_fetches:
+            return
+        if is_junk_job_link(job_url) or is_non_job_page(job_url, job_title):
+            return
+        fetched_urls.add(job_url)
+        try:
+            page_html = fetch_page(client, job_url)
+            page_text = html_to_text(page_html, 8000)
+            page_benefits = extract_benefits_from_html(page_html)
+        except httpx.HTTPError:
+            return
+
+        page_text = _append_benefits_block(page_text, page_benefits)
+        title = job_title or next(
+            (ln for ln in page_text.split("\n") if looks_like_job_title(ln)),
+            page_text.split("\n", 1)[0].strip(),
+        )
+        if looks_like_job_title(title):
+            body = page_text if page_text.startswith(title) else f"{title}\n{page_text}"
+            _upsert_job_detail(result.job_pages, title, job_url, body)
+            return
+
+        if is_listing_page(job_url) or extract_job_entries_from_text(page_text, job_url):
+            _append_unique_jobs(
+                result.job_pages,
+                extract_job_entries_from_text(page_text, job_url),
+            )
+        elif has_job_signal(job_url, page_text.split("\n", 1)[0]):
+            result.job_pages.append((job_url, page_text))
+
+    for title, job_url in embedded_jobs:
+        _fetch_job_detail(job_url, title)
+
+    job_urls = find_job_links(result.career_page_url or career_url, career_url, career_html)
+    for job_url in job_urls:
+        _fetch_job_detail(job_url)
+
+    return career_html
+
+
 def crawl_website(website_url: str, progress_callback=None) -> CrawlResult:
     website_url = normalize_url(website_url)
     result = CrawlResult()
@@ -260,67 +359,27 @@ def crawl_website(website_url: str, progress_callback=None) -> CrawlResult:
                     break
         result.career_page_url = career_url
 
-        career_html = ""
+        pages_to_crawl: list[str] = []
         if career_url:
-            try:
-                career_html = fetch_page(client, career_url)
-                page_content = extract_page_content(client, career_html, career_url)
-                result.career_text = page_content.text or html_to_text(career_html)
-                _append_unique_jobs(result.job_pages, page_content.jobs)
-                for benefit in page_content.benefits:
-                    key = benefit.lower()
-                    if key not in {item.lower() for item in result.benefits}:
-                        result.benefits.append(benefit)
-            except httpx.HTTPError:
-                result.career_text = ""
+            pages_to_crawl.append(career_url)
+        if homepage_html:
+            for listing_url in _listing_page_urls(client, website_url, homepage_html):
+                if listing_url.rstrip("/") not in {page.rstrip("/") for page in pages_to_crawl}:
+                    pages_to_crawl.append(listing_url)
 
-        if progress_callback:
-            progress_callback("fetch_jobs")
-        if career_html and career_url:
-            embedded_jobs = extract_embedded_job_detail_links(career_html, career_url)
-            fetched_urls: set[str] = set()
-            max_detail_fetches = config.MAX_CRAWL_PAGES
-
-            def _fetch_job_detail(job_url: str, job_title: str = "") -> None:
-                if job_url in fetched_urls or len(fetched_urls) >= max_detail_fetches:
-                    return
-                if is_junk_job_link(job_url) or is_non_job_page(job_url, job_title):
-                    return
-                fetched_urls.add(job_url)
-                try:
-                    page_html = fetch_page(client, job_url)
-                    page_text = html_to_text(page_html, 8000)
-                    page_benefits = extract_benefits_from_html(page_html)
-                except httpx.HTTPError:
-                    return
-
-                page_text = _append_benefits_block(page_text, page_benefits)
-                title = job_title or next(
-                    (ln for ln in page_text.split("\n") if looks_like_job_title(ln)),
-                    page_text.split("\n", 1)[0].strip(),
-                )
-                if looks_like_job_title(title):
-                    body = page_text if page_text.startswith(title) else f"{title}\n{page_text}"
-                    _upsert_job_detail(result.job_pages, title, job_url, body)
-                    return
-
-                if is_listing_page(job_url) or extract_job_entries_from_text(page_text, job_url):
-                    _append_unique_jobs(
-                        result.job_pages,
-                        extract_job_entries_from_text(page_text, job_url),
-                    )
-                elif has_job_signal(job_url, page_text.split("\n", 1)[0]):
-                    result.job_pages.append((job_url, page_text))
-
-            for title, job_url in embedded_jobs:
-                _fetch_job_detail(job_url, title)
-
-            job_urls = find_job_links(website_url, career_url, career_html)
-            for job_url in job_urls:
-                _fetch_job_detail(job_url)
+        career_html = ""
+        extra_html: list[str] = []
+        for page_url in pages_to_crawl:
+            fetched_html = _process_career_page(client, result, page_url, progress_callback)
+            if not fetched_html:
+                continue
+            if page_url.rstrip("/") == (career_url or "").rstrip("/"):
+                career_html = fetched_html
+            else:
+                extra_html.append(fetched_html)
 
         seen_benefits: set[str] = set()
-        for source_html in (homepage_html, career_html):
+        for source_html in (homepage_html, career_html, *extra_html):
             if not source_html:
                 continue
             for benefit in extract_benefits_from_html(source_html):

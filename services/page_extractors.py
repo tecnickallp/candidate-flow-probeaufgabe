@@ -16,6 +16,12 @@ from services.job_validation import (
     looks_like_job_title,
 )
 from services.spa_parser import extract_spa_content, is_spa_shell
+from services.job_board_parser import (
+    extract_job_board_content,
+    extract_jobs_from_job_board_html,
+    is_job_board_page,
+)
+from services.recruitee_parser import extract_recruitee_content, is_recruitee_page
 
 log = logging.getLogger(__name__)
 
@@ -291,6 +297,10 @@ def extract_embedded_json(html: str, page_url: str) -> PageContent:
 
 def extract_static_html(html: str, page_url: str) -> PageContent:
     text = html_to_visible_text(html)
+    if is_job_board_page(html) or is_recruitee_page(html):
+        benefits = extract_benefits_from_html(html)
+        sources = ["static_html"] if benefits else []
+        return PageContent(benefits=benefits, text=text, sources=sources)
     jobs = extract_job_entries_from_text(text, page_url)
     benefits = extract_benefits_from_html(html)
     if not jobs and not benefits and len(text) < 80:
@@ -300,12 +310,30 @@ def extract_static_html(html: str, page_url: str) -> PageContent:
 
 
 def extract_js_bundles(client: httpx.Client, html: str, page_url: str) -> PageContent:
-    if not is_spa_shell(html) and len(html_to_visible_text(html)) >= 300:
+    if not is_spa_shell(html) and len(html_to_visible_text(html)) >= 300 and not is_job_board_page(html):
         return PageContent()
     jobs, benefits, text = extract_spa_content(client, html, page_url)
     if not jobs and not text and not benefits:
         return PageContent()
     return PageContent(jobs=jobs, benefits=benefits, text=text, sources=["js_bundle"])
+
+
+def extract_recruitee(client: httpx.Client, html: str, page_url: str) -> PageContent:
+    if not is_recruitee_page(html):
+        return PageContent()
+    jobs, text = extract_recruitee_content(client, html, page_url)
+    if not jobs and not text:
+        return PageContent()
+    return PageContent(jobs=jobs, text=text, sources=["recruitee"])
+
+
+def extract_job_board(client: httpx.Client, html: str, page_url: str) -> PageContent:
+    if not is_job_board_page(html):
+        return PageContent()
+    jobs, benefits, text = extract_job_board_content(client, html, page_url)
+    if not jobs and not text and not benefits:
+        return PageContent(text=text)
+    return PageContent(jobs=jobs, benefits=benefits, text=text, sources=["job_board"])
 
 
 def extract_page_content(
@@ -322,6 +350,8 @@ def extract_page_content(
         lambda: extract_structured_data(html, page_url),
         lambda: extract_static_html(html, page_url),
         lambda: extract_embedded_json(html, page_url),
+        lambda: extract_recruitee(client, html, page_url),
+        lambda: extract_job_board(client, html, page_url),
         lambda: extract_js_bundles(client, html, page_url),
     ):
         try:
@@ -329,15 +359,19 @@ def extract_page_content(
         except Exception as exc:  # noqa: BLE001
             log.warning("Page extractor failed for %s: %s", page_url, exc)
 
-    needs_browser = (
-        allow_browser
-        and result.job_count == 0
-        and (is_spa_shell(html) or len(result.text) < 300)
+    job_board_page = is_job_board_page(html)
+    recruitee_page = is_recruitee_page(html)
+    needs_browser = allow_browser and result.job_count == 0 and (
+        job_board_page or recruitee_page or is_spa_shell(html) or len(result.text) < 300
     )
     if needs_browser:
         from services.browser_fetch import fetch_rendered_html
 
-        rendered = fetch_rendered_html(page_url)
+        rendered = fetch_rendered_html(
+            page_url,
+            expect_job_board=job_board_page or recruitee_page,
+            force=job_board_page or recruitee_page,
+        )
         if rendered and rendered.strip() and rendered.strip() != html.strip():
             log.info("Retrying extraction with rendered HTML for %s", page_url)
             rendered_result = extract_page_content(
@@ -346,6 +380,12 @@ def extract_page_content(
                 page_url,
                 allow_browser=False,
             )
+            if rendered_result.job_count == 0 and job_board_page:
+                board_jobs = extract_jobs_from_job_board_html(rendered, page_url)
+                if board_jobs:
+                    rendered_result = rendered_result.merge(
+                        PageContent(jobs=board_jobs, sources=["job_board_browser"])
+                    )
             result = result.merge(rendered_result)
             if "browser" not in result.sources:
                 result.sources.append("browser")
